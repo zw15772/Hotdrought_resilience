@@ -20,7 +20,7 @@ class GIMMS_NDVI:
         pass
 
     def run(self):
-        # self.resample()
+        self.resample()
         # self.monthly_compose()
         # self.per_pix()
         self.per_pix_biweekly()
