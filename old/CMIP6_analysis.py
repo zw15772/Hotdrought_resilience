@@ -1,5 +1,4 @@
 # coding=utf-8
-import matplotlib.pyplot as plt
 
 from meta_info import *
 result_root_this_script = join(results_root, 'CMIP6_analysis')
@@ -1731,7 +1730,7 @@ class Crit_P_T:
         T.print_head_n(df)
         col_name = self.col_name
         # exit()
-        history_model_f = join(statistic.Critical_P_and_T().this_class_arr,f'MAT_MAP_multiregression_anomaly/{col_name}.npy')
+        history_model_f = join(statistic.Critical_P_and_T().this_class_arr, f'MAT_MAP_multiregression_anomaly/{col_name}.npy')
         history_model = T.load_npy(history_model_f)
         df_list = []
         for key in tqdm(history_model):

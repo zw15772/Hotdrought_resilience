@@ -1,9 +1,7 @@
 # coding=utf-8
-import matplotlib.pyplot as plt
-import numpy as np
 import shap
 from meta_info import *
-from scipy.special import softmax
+
 result_root_this_script = join(results_root, 'statistic')
 import xgboost as xgb
 
@@ -18,7 +16,7 @@ class Hot_normal_drought:
             # T.mk_class_dir('Hot_normal_drought_double_detrend', result_root_this_script, mode=2)
             # T.mk_class_dir('Hot_normal_drought', result_root_this_script, mode=2)
             # T.mk_class_dir('Hot_normal_drought_double_detrend', result_root_this_script, mode=2)
-        self.dff_merge = join(analysis.Dataframe_SM().this_class_arr,'dataframe_merge','dataframe_merge.df')
+        self.dff_merge = join(analysis.Dataframe_SM().this_class_arr, 'dataframe_merge', 'dataframe_merge.df')
         self.df_dir = analysis.Dataframe_SM().df_dir
         pass
 
@@ -928,7 +926,7 @@ class Spatial_Trends:
 
     def NDVI_tif(self):
         import analysis
-        dff = join(analysis.Dataframe_SM().this_class_arr,'dataframe_merge','dataframe_merge.df')
+        dff = join(analysis.Dataframe_SM().this_class_arr, 'dataframe_merge', 'dataframe_merge.df')
         df_merge = T.load_df(dff)
         df_merge = df_merge[df_merge['AI_class'] == 'Arid']
         pix_list = T.get_df_unique_val_list(df_merge,'pix')
@@ -1037,7 +1035,7 @@ class Spatial_Trends:
 
     def SM_tif(self):
         import analysis
-        dff = join(analysis.Dataframe_SM().this_class_arr,'dataframe_merge','dataframe_merge.df')
+        dff = join(analysis.Dataframe_SM().this_class_arr, 'dataframe_merge', 'dataframe_merge.df')
         df_merge = T.load_df(dff)
         df_merge = df_merge[df_merge['AI_class'] == 'Arid']
         pix_list = T.get_df_unique_val_list(df_merge,'pix')
