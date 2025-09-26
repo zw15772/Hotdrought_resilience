@@ -6,11 +6,12 @@ import math
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-
+from pprint import pprint
 
 
 import xarray as xr
-
+import matplotlib
+matplotlib.use('TkAgg')
 class GIMMS_NDVI:
     def __init__(self):
         self.datadir = join(data_root, 'NDVI4g')
@@ -193,7 +194,21 @@ class extract_growing_season:
     def __init__(self):
         pass
     def run(self):
+        # self.gen_gs_index()
         self.extract_phenology_monthly_variables()
+        pass
+
+    def gen_gs_index(self):
+        f_phenology = rf'/Volumes/SSD1T/Hotdrought_Resilience/data/4GST//4GST_global.npy'
+        phenology_dic = T.load_npy(f_phenology)
+        for pix in phenology_dic:
+            dict_i = phenology_dic[pix]
+            SeasType = dict_i['SeasType']
+            sos = dict_i['Onsets']
+            eos = dict_i['Offsets']
+            pprint(dict_i)
+            exit()
+
         pass
 
     def extract_phenology_monthly_variables(self):
@@ -206,7 +221,8 @@ class extract_growing_season:
         phenology_dic = T.load_npy(f_phenology)
         new_spatial_dic = {}
         for pix in phenology_dic:
-            val=phenology_dic[pix]['Onsets']
+            # val=phenology_dic[pix]['Onsets']
+            val=phenology_dic[pix]['SeasType']
             if isinstance(val, np.ndarray):
                 print("skip array:", val)
                 new_spatial_dic[pix] = np.nan
@@ -216,6 +232,7 @@ class extract_growing_season:
 
         spatial_array=DIC_and_TIF(pixelsize=0.5).pix_dic_to_spatial_arr(new_spatial_dic)
         plt.imshow(spatial_array,interpolation='nearest',cmap='jet')
+        plt.colorbar()
         plt.show()
         exit()
         for f in T.listdir(fdir):
