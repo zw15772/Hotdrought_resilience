@@ -1,9 +1,5 @@
 # coding=utf-8
-import shap
-from meta_info import *
 
-result_root_this_script = join(results_root, 'statistic')
-import xgboost as xgb
 
 class Hot_normal_drought:
 
