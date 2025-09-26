@@ -221,8 +221,7 @@ class extract_growing_season:
         phenology_dic = T.load_npy(f_phenology)
         new_spatial_dic = {}
         for pix in phenology_dic:
-            # val=phenology_dic[pix]['Onsets']
-            val=phenology_dic[pix]['SeasType']
+            val=phenology_dic[pix]['Onsets']
             if isinstance(val, np.ndarray):
                 print("skip array:", val)
                 new_spatial_dic[pix] = np.nan
@@ -232,7 +231,6 @@ class extract_growing_season:
 
         spatial_array=DIC_and_TIF(pixelsize=0.5).pix_dic_to_spatial_arr(new_spatial_dic)
         plt.imshow(spatial_array,interpolation='nearest',cmap='jet')
-        plt.colorbar()
         plt.show()
         exit()
         for f in T.listdir(fdir):
