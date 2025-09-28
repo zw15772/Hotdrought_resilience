@@ -186,9 +186,127 @@ class Pick_drought_events:
 
         pass
 
+
+class Dataframe:
+
+    def __init__(self):
+        self.this_class_arr, self.this_class_tif, self.this_class_png = \
+            T.mk_class_dir('Dataframe', result_root_this_script, mode=2)
+        self.dff = join(self.this_class_arr,'dataframe','dataframe.df')
+        pass
+
+    def run(self):
+        # self.copy_df()
+
+        df = self.__df_init()
+        # df = self.add_SOS_EOS(df)
+        df = self.add_GS_NDVI(df)
+
+
+        T.save_df(df,self.dff)
+        T.df_to_excel(df,self.dff)
+        pass
+
+    def copy_df(self):
+        if isfile(self.dff):
+            print('Warning: this function will overwrite the dataframe')
+            print('Warning: this function will overwrite the dataframe')
+            print('Warning: this function will overwrite the dataframe')
+            pause()
+            pause()
+            pause()
+        outdir = join(self.this_class_arr,'dataframe')
+        T.mk_dir(outdir)
+        fpath = join(Pick_drought_events().this_class_arr,'picked_events/spi03.df')
+        df = T.load_df(fpath)
+        T.save_df(df,self.dff)
+        T.df_to_excel(df,self.dff)
+
+        pass
+
+    def add_SOS_EOS(self,df):
+        SOS_EOS_dir = join(data_root,'MODIS_phenology/SOS_EOS_mon')
+        SOS_tif = join(SOS_EOS_dir,'sos_mon.tif')
+        EOS_tif = join(SOS_EOS_dir,'eos_mon.tif')
+        SOS_dict = DIC_and_TIF().spatial_tif_to_dic(SOS_tif)
+        EOS_dict = DIC_and_TIF().spatial_tif_to_dic(EOS_tif)
+        sos_list = []
+        eos_list = []
+        for i,row in tqdm(df.iterrows(),total=len(df),desc='add SOS EOS'):
+            pix = row['pix']
+            sos = SOS_dict[pix]
+            eos = EOS_dict[pix]
+            sos_list.append(sos)
+            eos_list.append(eos)
+        df['sos'] = sos_list
+        df['eos'] = eos_list
+        return df
+
+    def add_GS_NDVI(self,df):
+        NDVI_fdir = join(data_root,'NDVI4g/per_pix')
+        NDVI_dict = T.load_npy_dir(NDVI_fdir)
+        NDVI_year_list = list(range(1982,2021))
+
+        result_dict = {}
+
+        for i,row in tqdm(df.iterrows(),total=len(df),desc='add GS NDVI'):
+            pix = row['pix']
+            sos = row['sos']
+            eos = row['eos']
+            drought_month = row['drought_month']
+
+            if np.isnan(sos) or np.isnan(eos):
+                continue
+            sos = int(sos)
+            eos = int(eos)
+            year = row['drought_year']
+            NDVI = NDVI_dict[pix]
+            if T.is_all_nan(NDVI):
+                continue
+            NDVI_reshape = np.reshape(NDVI,(-1,12))
+            NDVI_reshape_dict = T.dict_zip(NDVI_year_list,NDVI_reshape)
+
+            if sos < eos:
+                if drought_month < sos:
+                    continue
+                if drought_month > eos:
+                    continue
+                NDVI_drought_year = NDVI_reshape_dict[year]
+                NDVI_drought_year_GS = NDVI_drought_year[sos-1:eos]
+            else:
+                if drought_month >= sos:
+                    if not year+1 in NDVI_reshape_dict:
+                        continue
+                    NDVI_drought_year1 = NDVI_reshape_dict[year]
+                    NDVI_drought_year2 = NDVI_reshape_dict[year+1]
+                    NDVI_drought_year_GS1 = NDVI_drought_year1[sos-1:]
+                    NDVI_drought_year_GS2 = NDVI_drought_year2[:eos]
+                elif drought_month <= eos:
+                    if not year-1 in NDVI_reshape_dict:
+                        continue
+                    NDVI_drought_year1 = NDVI_reshape_dict[year-1]
+                    NDVI_drought_year2 = NDVI_reshape_dict[year]
+                    NDVI_drought_year_GS1 = NDVI_drought_year1[sos-1:]
+                    NDVI_drought_year_GS2 = NDVI_drought_year2[:eos]
+                else:
+                    continue
+                NDVI_drought_year_GS = np.concatenate((NDVI_drought_year_GS1,NDVI_drought_year_GS2))
+            NDVI_drought_year_GS_mean = np.nanmean(NDVI_drought_year_GS)
+            result_dict[i] = NDVI_drought_year_GS_mean
+        df['GS_NDVI'] = result_dict
+        df = df.dropna(subset=['GS_NDVI'])
+        df = df.reset_index(drop=True)
+        return df
+
+    def __df_init(self):
+        df = T.load_df(self.dff)
+        T.print_head_n(df)
+        return df
+
 def main():
 
-    Pick_drought_events().run()
+    # Pick_drought_events().run()
+    Dataframe().run()
 
 if __name__ == '__main__':
     main()
