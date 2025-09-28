@@ -1,4 +1,7 @@
 # coding=utf-8
+import warnings
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+warnings.filterwarnings("ignore", category=FutureWarning)
 import sys
 version = sys.version_info.major
 assert version == 3, 'Python Version Error'

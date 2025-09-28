@@ -7,11 +7,14 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from pprint import pprint
-
+import warnings
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+warnings.filterwarnings("ignore", category=FutureWarning)
 
 import xarray as xr
 import matplotlib
 matplotlib.use('TkAgg')
+
 class GIMMS_NDVI:
     def __init__(self):
         self.datadir = join(data_root, 'NDVI4g')
@@ -193,23 +196,170 @@ class temperature:
 class extract_growing_season:
     def __init__(self):
         pass
+
     def run(self):
-        # self.gen_gs_index()
-        self.extract_phenology_monthly_variables()
+        # self.resample()
+        # self.SOS_EOS_doy()
+        self.SOS_EOS_mon()
+        # self.extract_phenology_monthly_variables()
         pass
 
-    def gen_gs_index(self):
-        f_phenology = rf'/Volumes/SSD1T/Hotdrought_Resilience/data/4GST//4GST_global.npy'
-        phenology_dic = T.load_npy(f_phenology)
-        for pix in phenology_dic:
-            dict_i = phenology_dic[pix]
-            SeasType = dict_i['SeasType']
-            sos = dict_i['Onsets']
-            eos = dict_i['Offsets']
-            pprint(dict_i)
-            exit()
+    @Decorator.shutup_gdal
+    def resample(self):
+        fdir = join(data_root,'MODIS_phenology/tif')
+        outdir = join(data_root,'MODIS_phenology/tif_05')
+        for folder in tqdm(T.listdir(fdir)):
+            for f in T.listdir(join(fdir,folder)):
+                if not f.endswith('.tif'):
+                    continue
+                fpath = join(fdir,folder,f)
+                outdir_i = join(outdir,folder)
+                T.mk_dir(outdir_i,force=True)
+                outf = join(outdir_i,f)
+                ToRaster().resample_reproj(fpath,outf,0.5)
 
-        pass
+    def SOS_EOS_doy(self):
+        outdir = join(data_root,'MODIS_phenology/SOS_EOS_doy')
+        T.mk_dir(outdir,force=True)
+        base_date = datetime.datetime(1970,1,1)
+        fdir = join(data_root,'MODIS_phenology/tif_05')
+        num_cycle_fdir = join(fdir,'NumCycles')
+        array_void = 0
+        for f in T.listdir(num_cycle_fdir):
+            if not f.endswith('.tif'):
+                continue
+            fpath = join(num_cycle_fdir,f)
+            array, originX, originY, pixelWidth, pixelHeight = ToRaster().raster2array(fpath)
+            array_void = np.zeros_like(array)
+            break
+        array_void = array_void.astype('float')
+
+        flag = 0
+        for f in T.listdir(num_cycle_fdir):
+            if not f.endswith('.tif'):
+                continue
+            fpath = join(num_cycle_fdir,f)
+            array, originX, originY, pixelWidth, pixelHeight = ToRaster().raster2array(fpath)
+            array = array.astype('float')
+            array[array>30000] = np.nan
+            array_void += array
+            flag += 1
+        array_mean = array_void / flag
+        array_mean[array_mean!=1] = np.nan
+        spatial_dict = DIC_and_TIF().spatial_arr_to_dic(array_mean)
+
+        year_range = list(range(2001,2021))
+        sos_dir = join(fdir,'Greenup_1')
+        # eos_dir = join(fdir,'Senescence_1')
+        eos_dir = join(fdir,'Dormancy_1')
+        gs_range_dict = {}
+        for year in tqdm(year_range):
+            base_date_i = datetime.datetime(year,1,1)
+            sos_fpath = join(sos_dir,f'{year}_01_01.tif')
+            eos_fpath = join(eos_dir,f'{year}_01_01.tif')
+            sos_array, originX, originY, pixelWidth, pixelHeight = ToRaster().raster2array(sos_fpath)
+            eos_array, originX, originY, pixelWidth, pixelHeight = ToRaster().raster2array(eos_fpath)
+            sos_array = sos_array.astype('float')
+            eos_array = eos_array.astype('float')
+            sos_array[sos_array > 30000] = np.nan
+            eos_array[eos_array > 30000] = np.nan
+            sos_dict = DIC_and_TIF().spatial_arr_to_dic(sos_array)
+            eos_dict = DIC_and_TIF().spatial_arr_to_dic(eos_array)
+            spatial_dict_1 = {}
+            for pix in sos_dict:
+                sos = sos_dict[pix]
+                eos = eos_dict[pix]
+                if np.isnan(sos) or np.isnan(eos):
+                    continue
+                sos = int(sos)
+                eos = int(eos)
+                sos_date = base_date + datetime.timedelta(days=sos)
+                eos_date = base_date + datetime.timedelta(days=eos)
+                sos_year = sos_date.year
+                eos_year = eos_date.year
+                # if not sos_year == year:
+                #     continue
+                # if not eos_year == year:
+                #     continue
+                sos_doy = sos_date - base_date_i
+                eos_doy = eos_date - base_date_i
+                sos_doy = sos_doy.days
+                eos_doy = eos_doy.days
+                # if not eos_doy > sos_doy:
+                #     continue
+                # sos_mon = self.__doy_to_month(sos_doy)
+                # eos_mon = self.__doy_to_month(eos_doy)
+                if not pix in gs_range_dict:
+                    gs_range_dict[pix] = {}
+                gs_range_dict[pix][year] = np.array([sos_doy,eos_doy])
+        df = T.dic_to_df(gs_range_dict,'pix')
+        outf = join(outdir,'SOS_EOS_doy.df')
+        T.save_df(df,outf)
+        T.df_to_excel(df,outf)
+
+    def SOS_EOS_mon(self):
+        fdir = join(data_root,'MODIS_phenology/SOS_EOS_doy')
+        outdir = join(data_root,'MODIS_phenology/SOS_EOS_mon')
+        T.mk_dir(outdir,force=True)
+        df = T.load_df(join(fdir,'SOS_EOS_doy.df'))
+        sos_spatial_dict = {}
+        eos_spatial_dict = {}
+        year_list = range(2001,2021)
+
+        for i,row in df.iterrows():
+            pix = row['pix']
+            sos_list = []
+            eos_list = []
+            for year in year_list:
+                sos_eos = row[year]
+                if type(sos_eos) == float:
+                    continue
+                sos,eos = row[year]
+                sos_list.append(sos)
+                eos_list.append(eos)
+            sos_mean = np.nanmean(sos_list)
+            eos_mean = np.nanmean(eos_list)
+            sos_spatial_dict[pix] = sos_mean
+            eos_spatial_dict[pix] = eos_mean
+        sos_mon_spatial_dict = {}
+        eos_mon_spatial_dict = {}
+        for pix  in sos_spatial_dict:
+            sos = sos_spatial_dict[pix]
+            eos = eos_spatial_dict[pix]
+            if sos < 0:
+                sos_doy = 365 + int(sos)
+            else:
+                sos_doy = int(sos)
+            if eos > 365:
+                eos_doy = int(eos) - 365
+            else:
+                eos_doy = int(eos)
+            sos_mon = self.__doy_to_month(sos_doy)
+            eos_mon = self.__doy_to_month(eos_doy)
+            sos_mon_spatial_dict[pix] = sos_mon
+            eos_mon_spatial_dict[pix] = eos_mon
+        sos_outf = join(outdir,'sos_mon.tif')
+        eos_outf = join(outdir,'eos_mon.tif')
+        DIC_and_TIF().pix_dic_to_tif(sos_mon_spatial_dict,sos_outf)
+        DIC_and_TIF().pix_dic_to_tif(eos_mon_spatial_dict,eos_outf)
+
+
+
+    def __doy_to_month(self,doy):
+        '''
+        :param doy: day of year
+        :return: month
+        '''
+        base = datetime.datetime(2000,1,1)
+        time_delta = datetime.timedelta(int(doy))
+        date = base + time_delta
+        month = date.month
+        day = date.day
+        if day > 15:
+            month = month + 1
+        if month >= 12:
+            month = 12
+        return month
 
     def extract_phenology_monthly_variables(self):
         fdir = rf'/Volumes/SSD1T/Hotdrought_Resilience/data/SPI/dic/spi09/'
