@@ -101,7 +101,7 @@ class SPI:
         Pre_Process().data_transform(fdir, outdir)
 class temperature:
     def __init__(self):
-        self.datadir = join(data_root,'CRU_temp',)
+        self.datadir = join(data_root,'CRU_tmax',)
         pass
     def run(self):
         # self.nc_to_tif()
@@ -119,7 +119,7 @@ class temperature:
         T.mk_dir(outdir)
         for f in tqdm(T.listdir(fdir)):
             # var_name = f.split('_')[0]
-            var_name = 'tmp'
+            var_name = 'tmx'
             f_path = join(fdir,f)
             # T.nc_to_tif(f_path,var_name,outdir)
             ncin = Dataset(f_path, 'r')
@@ -192,6 +192,8 @@ class temperature:
         outdir =  join(self.datadir,'per_pix',)
         T.mk_dir(outdir,force=True)
         Pre_Process().data_transform(fdir, outdir)
+
+
 
 class extract_growing_season:
     def __init__(self):
@@ -495,8 +497,8 @@ def main():
 
     # GIMMS_NDVI().run()
     # SPI().run()
-    # temperature().run()
-    extract_growing_season().run()
+    temperature().run()
+    # extract_growing_season().run()
 
 if __name__ == '__main__':
     main()
