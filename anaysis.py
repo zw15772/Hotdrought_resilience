@@ -15,11 +15,11 @@ class Pick_drought_events:
     def __init__(self):
         self.this_class_arr, self.this_class_tif, self.this_class_png = \
             T.mk_class_dir('Pick_Drought_Events', result_root_this_script, mode=2)
-        self.threshold = -0.5
+        self.threshold = -2
 
     def run(self):
-        self.pick_normal_drought_events()
-        # self.add_hot_normal_drought()
+        # self.pick_normal_drought_events()
+        self.add_hot_normal_drought()
         # self.gen_dataframe()
         pass
 
@@ -139,7 +139,7 @@ class Pick_drought_events:
 
     def add_hot_normal_drought(self):
         fdir = join(self.this_class_arr, 'picked_events')
-        Temperature_anomaly_data_dict,_ = Load_Data().ERA_Tair_anomaly_detrend()
+        Temperature_anomaly_data_dict=T.load_npy_dir('')
         for f in T.listdir(fdir):
             if not f.endswith('.df'):
                 continue
@@ -196,7 +196,7 @@ class Dataframe:
         pass
 
     def run(self):
-        # self.copy_df()
+        # self.copy_df() ## only one time
 
         df = self.__df_init()
         # df = self.add_SOS_EOS(df)
@@ -225,9 +225,10 @@ class Dataframe:
         pass
 
     def add_SOS_EOS(self,df):
-        SOS_EOS_dir = join(data_root,'MODIS_phenology/SOS_EOS_mon')
-        SOS_tif = join(SOS_EOS_dir,'sos_mon.tif')
-        EOS_tif = join(SOS_EOS_dir,'eos_mon.tif')
+        SOS_EOS_dir = join(data_root,'CRU_temp/extract_growing_season')
+
+        SOS_tif = join(SOS_EOS_dir,'Start_month_10_degree.tif')
+        EOS_tif = join(SOS_EOS_dir,'End_month_10_degree.tif')
         SOS_dict = DIC_and_TIF().spatial_tif_to_dic(SOS_tif)
         EOS_dict = DIC_and_TIF().spatial_tif_to_dic(EOS_tif)
         sos_list = []
@@ -240,6 +241,7 @@ class Dataframe:
             eos_list.append(eos)
         df['sos'] = sos_list
         df['eos'] = eos_list
+        df=df.dropna(subset=['sos','eos'])
         return df
 
     def add_GS_NDVI(self,df):
@@ -305,8 +307,8 @@ class Dataframe:
 
 def main():
 
-    # Pick_drought_events().run()
-    Dataframe().run()
+    Pick_drought_events().run()
+    # Dataframe().run()
 
 if __name__ == '__main__':
     main()

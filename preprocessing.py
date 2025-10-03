@@ -85,6 +85,167 @@ class GIMMS_NDVI:
         plt.imshow(arr)
         plt.show()
 
+    def extract_all_gs_NDVI_based_temp(self):
+        """
+        批处理: 提取所有像素的 LAI 生长季 (多年序列)
+        输出:
+            result_dic : {pix: ndarray 或 None}, shape = (n_years, season_len)
+        """
+        LAI_dic_fdir =join(data_root,'NDVI4g','per_pix')
+        growing_season_fdir = join(data_root,'CRU_temp','extract_growing_season','extract_growing_season_10degree')
+        outdir = join(data_root,'NDVI4g','extract_growing_season','extract_growing_season_10degree')
+        T.mk_dir(outdir, force=True)
+
+        start_dic = {}
+        end_dic = {}
+        len_dic = {}
+
+        for f in T.listdir(LAI_dic_fdir):
+
+            result_dic = {}
+            LAI_dic = T.load_npy(join(LAI_dic_fdir,f))
+            gs_dic = T.load_npy(join(growing_season_fdir,f))
+
+            for pix in tqdm(LAI_dic, desc=f"Extracting GS LAI from {f}"):
+                LAI_val = np.array(LAI_dic[pix], dtype=float)
+
+                if pix not in gs_dic:
+                    result_dic[pix] = None
+                    continue
+
+                start = gs_dic[pix]["start"]
+                end = gs_dic[pix]["end"]
+                start_dic[pix] = start
+                end_dic[pix] = end
+
+                if start is None or end is None:
+                    result_dic[pix] = None
+                    continue
+
+                n_years = len(LAI_val) // 12
+                gs_vals = []
+
+                for y in range(n_years):
+                    year_vals = LAI_val[y * 12:(y + 1) * 12]  # 当年12个月
+
+                    if start <= end:
+                        # 生长季在同一年内
+                        gs_vals.append(year_vals[start:end + 1])
+                    else:
+                        # 跨年 → 当年[start:12] + 下一年[:end+1]
+                        if y < n_years - 1:  # 不是最后一年
+                            next_year_vals = LAI_val[(y + 1) * 12:(y + 2) * 12]
+                            gs_vals.append(np.concatenate([year_vals[start:], next_year_vals[:end + 1]]))
+                        else:
+                            # 最后一年无法取下一年 → 丢弃 or 标记 None
+                            gs_vals.append(None)
+
+                result_dic[pix] = gs_vals
+                len_dic[pix] = len(gs_vals)
+
+            # 保存生长季 LAI
+            outf = join(outdir,f)
+            np.save(outf, result_dic)
+
+        # 可选：保存 start/end 空间分布检查
+        array_start = DIC_and_TIF(pixelsize=0.5).pix_dic_to_spatial_arr(start_dic)
+        array_end = DIC_and_TIF(pixelsize=0.5).pix_dic_to_spatial_arr(end_dic)
+        array_len = DIC_and_TIF(pixelsize=0.5).pix_dic_to_spatial_arr(len_dic)
+
+        DIC_and_TIF(pixelsize=0.5).arr_to_tif(array_start, outdir + 'start.tif')
+
+        DIC_and_TIF(pixelsize=0.5).arr_to_tif(array_len, outdir + 'len.tif')
+
+        DIC_and_TIF(pixelsize=0.5).arr_to_tif(array_end, outdir + 'end.tif')
+
+        plt.figure(figsize=(12, 5))
+        plt.subplot(1, 2, 1)
+
+        plt.imshow(array_start, cmap="jet")
+        plt.colorbar(label="Month Index (0=Jan)")
+
+        plt.subplot(1, 2, 2)
+
+        plt.imshow(array_end, cmap="jet")
+        plt.colorbar(label="Month Index (11=Dec)")
+        plt.show()
+
+
+    def annual_growth_season_NDVI(self):
+        """
+        计算每个像素逐年的生长季 LAI 平均值
+        - 北半球: 保留22年 (2003–2024)
+        - 南半球: 如果是跨年生长季 → 只保留21年 (2004–2024)
+                  如果是全年生长季 → 保留22年
+        """
+        fdir = join(data_root,'NDVI4g','extract_growing_season','extract_growing_season_10degree')
+        outdir = join(data_root,'NDVI4g','annual_growing_season_NDVI')
+        T.mk_dir(outdir, force=True)
+        len_dic = {}
+
+        for f in tqdm(T.listdir(fdir)):
+            if not '.npy' in f:
+                continue
+            dic = T.load_npy(join(fdir,f))
+            result_dic = {}
+
+            for pix in dic:
+
+                r,c = pix
+                # lon,lat=DIC_and_TIF().pix_to_lon_lat(pix)
+                # # print(lon,lat)
+                # if not lon == 149.5:
+                #     continue
+                # if not lat== -36.5:
+                #     continue
+                gs_array = dic[pix]  # shape = (n_years, season_len) 或 None
+
+
+                if gs_array is None:
+                    result_dic[pix] = None
+                    continue
+
+                if gs_array[-1] is None:
+                    gs_array = gs_array[:-1]
+
+                n_years = len(gs_array)
+
+                if n_years < 38:
+                    result_dic[pix] = None
+                    continue
+
+
+                # print(gs_array)
+                # gs_array = np.array(gs_array,dtype=float)
+                # print(gs_array.shape)
+                # plt.imshow(gs_array,cmap='jet')
+                # plt.colorbar()
+                # plt.show()
+                # exit()
+
+                # 逐年平均
+                annual_mean = np.nanmean(gs_array, axis=1)  # (n_years,)
+                print(len(annual_mean))
+                # plt.plot(annual_mean)
+                # plt.show()
+
+
+
+                result_dic[pix] = annual_mean
+                len_dic[pix] = len(annual_mean)
+
+            outf = join(outdir,f)
+            np.save(outf, result_dic)
+        array_len = DIC_and_TIF(pixelsize=0.5).pix_dic_to_spatial_arr(len_dic)
+        plt.imshow(array_len, cmap="jet")
+        plt.colorbar(label="Month Index (11=Dec)")
+        plt.show()
+
+
+
+
+    pass
+
 class SPI:
     def __init__(self):
         self.datadir = join(data_root,'SPI','tif','1982-2020',)
@@ -109,7 +270,7 @@ class temperature:
 
         # self.per_pix()
         # self.long_term_mean()
-        self.extract_growing_season_index()
+        self.extract_SOS_EOS_index()
         pass
 
 
@@ -225,7 +386,7 @@ class temperature:
 
             np.save(join(outdir,f),result_dic)
 
-    def extract_growing_season_index(self):
+    def extract_SOS_EOS_index(self):
         """
         根据  的月均温度，提取每个像素的生长季
         条件：温度 > 10 °C
@@ -300,30 +461,15 @@ class temperature:
             outf = join(outdir,f)
             T.save_npy(result_dic,outf)
 
-
-class extract_growing_season:
-
-    def __init__(self):
-
-        pass
-    def run(self):
-        # self.extract_all_gs_LAI_based_temp()
-        self.annual_growth_season()
-        pass
-
-
-
-
-
-    def extract_all_gs_LAI_based_temp(self):
+    def extract_all_gs_temp_based_temp(self):
         """
         批处理: 提取所有像素的 LAI 生长季 (多年序列)
         输出:
             result_dic : {pix: ndarray 或 None}, shape = (n_years, season_len)
         """
-        LAI_dic_fdir =join(data_root,'NDVI4g','per_pix')
-        growing_season_fdir = join(data_root,'CRU_temp','extract_growing_season','extract_growing_season_10degree')
-        outdir = join(data_root,'NDVI4g','extract_growing_season','extract_growing_season_10degree')
+        LAI_dic_fdir = join(data_root, 'NDVI4g', 'per_pix')
+        growing_season_fdir = join(data_root, 'CRU_temp', 'extract_growing_season', 'extract_growing_season_10degree')
+        outdir = join(data_root, 'NDVI4g', 'extract_growing_season', 'extract_growing_season_10degree')
         T.mk_dir(outdir, force=True)
 
         start_dic = {}
@@ -333,8 +479,8 @@ class extract_growing_season:
         for f in T.listdir(LAI_dic_fdir):
 
             result_dic = {}
-            LAI_dic = T.load_npy(join(LAI_dic_fdir,f))
-            gs_dic = T.load_npy(join(growing_season_fdir,f))
+            LAI_dic = T.load_npy(join(LAI_dic_fdir, f))
+            gs_dic = T.load_npy(join(growing_season_fdir, f))
 
             for pix in tqdm(LAI_dic, desc=f"Extracting GS LAI from {f}"):
                 LAI_val = np.array(LAI_dic[pix], dtype=float)
@@ -374,7 +520,7 @@ class extract_growing_season:
                 len_dic[pix] = len(gs_vals)
 
             # 保存生长季 LAI
-            outf = join(outdir,f)
+            outf = join(outdir, f)
             np.save(outf, result_dic)
 
         # 可选：保存 start/end 空间分布检查
@@ -401,7 +547,8 @@ class extract_growing_season:
         plt.show()
 
 
-    def annual_growth_season(self):
+
+    def annual_growth_season_temp(self):
         """
         计算每个像素逐年的生长季 LAI 平均值
         - 北半球: 保留22年 (2003–2024)
@@ -474,7 +621,14 @@ class extract_growing_season:
 
 
 
-    pass
+
+
+
+
+
+
+
+
 
 class extract_growing_season_not_used:  ## not use in this project
     def __init__(self):
