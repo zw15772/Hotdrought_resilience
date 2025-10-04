@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 from meta_info import *
 from pprint import pprint
+mpl.use('TkAgg')
 
 result_root_this_script = join(results_root, 'analysis')
 
@@ -221,11 +222,12 @@ class Dataframe:
         pass
 
     def run(self):
-        self.copy_df() ## only one time
+        # self.copy_df() ## only one time
 
-
-        # df = self.__df_init()
+        df = self.__df_init()
         # df = self.add_SOS_EOS(df)
+        # df = self.filter_drought_events_via_SOS_EOS(df)
+        df = self.check_df(df)
         # df = self.add_GS_NDVI(df)
 
 
@@ -243,7 +245,7 @@ class Dataframe:
             pause()
         outdir = join(self.this_class_arr,'dataframe')
         T.mk_dir(outdir)
-        fpath = join(Pick_drought_events().this_class_arr,'picked_events/spi03.df')
+        fpath = join(Pick_drought_events().this_class_arr,'drought_dataframe/drought_dataframe.df')
         df = T.load_df(fpath)
         T.save_df(df,self.dff)
         T.df_to_excel(df,self.dff)
@@ -251,7 +253,7 @@ class Dataframe:
         pass
 
     def add_SOS_EOS(self,df):
-        SOS_EOS_dir = join(data_root,'CRU_temp/extract_growing_season')
+        SOS_EOS_dir = join(data_root,'CRU_temp/extract_SOS_EOS_index')
 
         SOS_tif = join(SOS_EOS_dir,'Start_month_10_degree.tif')
         EOS_tif = join(SOS_EOS_dir,'End_month_10_degree.tif')
@@ -270,8 +272,42 @@ class Dataframe:
         df=df.dropna(subset=['sos','eos'])
         return df
 
+    def filter_drought_events_via_SOS_EOS(self,df):
+        picked_index_list = []
+        for i,row in tqdm(df.iterrows(),total=len(df)):
+            drought_mon = row['drought_mon']
+            sos = row['sos']
+            eos = row['eos']
+            sos = int(sos)
+            eos = int(eos)
+            # print(sos==eos)
+            # print(sos,eos)
+
+            if sos == eos:
+                if drought_mon != sos:
+                    continue
+            elif sos < eos:
+                if drought_mon < sos or drought_mon > eos:
+                    continue
+            elif sos > eos:
+                if drought_mon > sos or drought_mon < eos:
+                    continue
+            else:
+                raise ValueError(sos,eos,sos==eos)
+            picked_index_list.append(i)
+
+        df = df.iloc[picked_index_list]
+
+        return df
+
+    def check_df(self,df):
+        global_land_tif = join(this_root,'conf/land.tif')
+        DIC_and_TIF().plot_df_spatial_pix(df,global_land_tif)
+        plt.show()
+        pass
+
     def add_GS_NDVI(self,df):
-        NDVI_fdir = join(data_root,'NDVI4g/per_pix')
+        NDVI_fdir = join(data_root,'NDVI4g/annual_growing_season_NDVI')
         NDVI_dict = T.load_npy_dir(NDVI_fdir)
         NDVI_year_list = list(range(1982,2021))
 
@@ -281,45 +317,28 @@ class Dataframe:
             pix = row['pix']
             sos = row['sos']
             eos = row['eos']
-            drought_month = row['drought_month']
+            drought_month = row['drought_mon']
 
             if np.isnan(sos) or np.isnan(eos):
                 continue
             sos = int(sos)
             eos = int(eos)
             year = row['drought_year']
+            if not pix in NDVI_dict:
+                continue
             NDVI = NDVI_dict[pix]
+            NDVI = list(NDVI)
             if T.is_all_nan(NDVI):
                 continue
-            NDVI_reshape = np.reshape(NDVI,(-1,12))
-            NDVI_reshape_dict = T.dict_zip(NDVI_year_list,NDVI_reshape)
+            if not len(NDVI_year_list) == len(NDVI):
+                print(pix)
+                print(len(NDVI),len(NDVI_year_list))
+                print('----')
+                continue
+            NDVI_year_dict = T.dict_zip(NDVI_year_list,NDVI)
+            # pprint(NDVI_reshape_dict);exit()
 
-            if sos < eos:
-                if drought_month < sos:
-                    continue
-                if drought_month > eos:
-                    continue
-                NDVI_drought_year = NDVI_reshape_dict[year]
-                NDVI_drought_year_GS = NDVI_drought_year[sos-1:eos]
-            else:
-                if drought_month >= sos:
-                    if not year+1 in NDVI_reshape_dict:
-                        continue
-                    NDVI_drought_year1 = NDVI_reshape_dict[year]
-                    NDVI_drought_year2 = NDVI_reshape_dict[year+1]
-                    NDVI_drought_year_GS1 = NDVI_drought_year1[sos-1:]
-                    NDVI_drought_year_GS2 = NDVI_drought_year2[:eos]
-                elif drought_month <= eos:
-                    if not year-1 in NDVI_reshape_dict:
-                        continue
-                    NDVI_drought_year1 = NDVI_reshape_dict[year-1]
-                    NDVI_drought_year2 = NDVI_reshape_dict[year]
-                    NDVI_drought_year_GS1 = NDVI_drought_year1[sos-1:]
-                    NDVI_drought_year_GS2 = NDVI_drought_year2[:eos]
-                else:
-                    continue
-                NDVI_drought_year_GS = np.concatenate((NDVI_drought_year_GS1,NDVI_drought_year_GS2))
-            NDVI_drought_year_GS_mean = np.nanmean(NDVI_drought_year_GS)
+            NDVI_drought_year_GS_mean = NDVI_year_dict[year]
             result_dict[i] = NDVI_drought_year_GS_mean
         df['GS_NDVI'] = result_dict
         df = df.dropna(subset=['GS_NDVI'])
@@ -333,8 +352,8 @@ class Dataframe:
 
 def main():
 
-    Pick_drought_events().run()
-    # Dataframe().run()
+    # Pick_drought_events().run()
+    Dataframe().run()
 
 if __name__ == '__main__':
     main()
