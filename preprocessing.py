@@ -124,6 +124,7 @@ class GIMMS_NDVI:
                 n_years = len(LAI_val) // 12
                 gs_vals = []
                 if n_years <38:
+                    print(n_years)
                     continue
 
 
@@ -198,7 +199,7 @@ class GIMMS_NDVI:
 
             for pix in dic:
                 r, c = pix
-                # lon,lat=DIC_and_TIF().pix_to_lon_lat(pix) # # print(lon,lat) #
+                lon,lat=DIC_and_TIF().pix_to_lon_lat(pix) # # print(lon,lat) #
                 # if not lon == 149.5:
                 #     continue #
                 # if not lat== -36.5: #
@@ -213,6 +214,9 @@ class GIMMS_NDVI:
                 if isinstance(gs_array, (list, np.ndarray)):
                     # 转换为object数组（确保兼容np.nan）
                     gs_array = np.array(gs_array, dtype=object)
+                    if len(gs_array)<38:
+                        continue
+
 
 
                     if len(gs_array) == 0:
@@ -227,6 +231,7 @@ class GIMMS_NDVI:
                         stacked = np.vstack(gs_array)
                     except Exception as e:
                         print(f"Warning: failed to stack pix {pix}, reason: {e}")
+                        result_dic[pix] = np.nan
                         continue
 
 
@@ -236,21 +241,34 @@ class GIMMS_NDVI:
                         print("All NaN at pix:", pix)
                         continue
 
+                    lon, lat = DIC_and_TIF().pix_to_lon_lat(pix)
 
 
+                    if lat < 0:
+                        if len(annual_mean) == 38:
+                            annual_mean = np.append(annual_mean, np.nan)
 
 
-                    # print(len(annual_mean))
+                    if lat >= 0 and len(annual_mean) != 39:
+                        continue
+
                     # plt.plot(annual_mean)
+                    # print(annual_mean)
+                    # print(len(annual_mean))
                     # plt.show()
+
 
                     result_dic[pix] = annual_mean
                     len_dic[pix] = len(annual_mean)
+
+
 
             # 保存每个文件结果
             outf = join(outdir, f)
             np.save(outf, result_dic)
         array_len = DIC_and_TIF(pixelsize=0.5).pix_dic_to_spatial_arr(len_dic)
+        outtif=join(outdir,'annual_growing_season_NDVI_len.tif')
+        DIC_and_TIF(pixelsize=0.5).arr_to_tif(array_len, outtif)
         plt.imshow(array_len, cmap="jet")
         plt.colorbar(label="Month Index (11=Dec)")
         plt.show()
