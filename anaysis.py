@@ -1,5 +1,3 @@
-from more_itertools.more import combination_index
-from pyasn1_modules.rfc3412 import SNMPv3Message
 
 from global_init import *
 # coding=utf-8
@@ -227,12 +225,17 @@ class Dataframe:
         df = self.__df_init()
         # df = self.add_SOS_EOS(df)
         # df = self.filter_drought_events_via_SOS_EOS(df)
-        df = self.check_df(df)
+        # self.check_df(df)
         # df = self.add_GS_NDVI(df)
+        # df = self.add_GS_values_post_n(df)
+        df=self.add_aridity_to_df(df)
+        df=self.add_MODIS_LUCC_to_df(df)
+        df=self.add_landcover_data_to_df(df)
+        df=self.add_landcover_classfication_to_df(df)
 
 
-        # T.save_df(df,self.dff)
-        # T.df_to_excel(df,self.dff)
+        T.save_df(df,self.dff)
+        T.df_to_excel(df,self.dff)
         pass
 
     def copy_df(self):
@@ -307,7 +310,7 @@ class Dataframe:
         pass
 
     def add_GS_NDVI(self,df):
-        NDVI_fdir = join(data_root,'NDVI4g/annual_growing_season_NDVI')
+        NDVI_fdir = join(data_root,'NDVI4g/annual_growth_season_NDVI_anomaly')
         NDVI_dict = T.load_npy_dir(NDVI_fdir)
         NDVI_year_list = list(range(1982,2021))
 
@@ -345,6 +348,160 @@ class Dataframe:
         df = df.reset_index(drop=True)
         return df
 
+    def add_GS_values_post_n(self,df):
+        post_n_years = 4
+        NDVI_fdir = join(data_root,'NDVI4g/annual_growth_season_NDVI_anomaly')
+        NDVI_dict = T.load_npy_dir(NDVI_fdir)
+        NDVI_year_list = list(range(1982,2021))
+
+        result_dict = {}
+
+        for i,row in tqdm(df.iterrows(),total=len(df),desc='add GS NDVI'):
+            pix = row['pix']
+            sos = row['sos']
+            eos = row['eos']
+            drought_month = row['drought_mon']
+
+            if np.isnan(sos) or np.isnan(eos):
+                continue
+            sos = int(sos)
+            eos = int(eos)
+            year = row['drought_year']
+            if not pix in NDVI_dict:
+                continue
+            NDVI = NDVI_dict[pix]
+            NDVI = list(NDVI)
+            if T.is_all_nan(NDVI):
+                continue
+            if not len(NDVI_year_list) == len(NDVI):
+                print(pix)
+                print(len(NDVI),len(NDVI_year_list))
+                print('----')
+                continue
+            NDVI_year_dict = T.dict_zip(NDVI_year_list,NDVI)
+            # pprint(NDVI_reshape_dict);exit()
+            post_n_year_list = []
+            for n in range(post_n_years):
+                post_n_year_list.append(year+n+1)
+            post_n_year_values = []
+            for year in post_n_year_list:
+                if not year in NDVI_year_dict:
+                    post_n_year_values = []
+                    break
+                NDVI_drought_year_GS = NDVI_year_dict[year]
+                post_n_year_values.append(NDVI_drought_year_GS)
+            if len(post_n_year_values) == 0:
+                continue
+            NDVI_drought_year_GS_mean = np.nanmean(post_n_year_values)
+            result_dict[i] = NDVI_drought_year_GS_mean
+        df[f'GS_NDVI_post_{post_n_years}'] = result_dict
+        df = df.dropna(subset=['GS_NDVI'])
+        df = df.reset_index(drop=True)
+        return df
+
+
+    def add_MODIS_LUCC_to_df(self, df):
+        f=data_root+'/Basedata/MODIS_LUCC_resample_05.tif'
+
+        array, originX, originY, pixelWidth, pixelHeight = ToRaster().raster2array(f)
+        array = np.array(array, dtype=float)
+        val_dic = DIC_and_TIF().spatial_arr_to_dic(array)
+        f_name = f.split('.')[0]
+        print(f_name)
+        val_list = []
+
+        for i, row in tqdm(df.iterrows(), total=len(df)):
+            pix = row['pix']
+            if not pix in val_dic:
+                val_list.append(np.nan)
+                continue
+            vals = val_dic[pix]
+            val_list.append(vals)
+        df['MODIS_LUCC'] = val_list
+        return df
+
+
+    def add_landcover_data_to_df(self, df):
+
+        f = data_root + rf'/Basedata/glc2000_v1_1_05_deg_unify.tif'
+
+        array, originX, originY, pixelWidth, pixelHeight = ToRaster().raster2array(f)
+        array = np.array(array, dtype=float)
+        val_dic = DIC_and_TIF().spatial_arr_to_dic(array)
+
+        f_name = f.split('.')[0]
+        print(f_name)
+
+        val_list = []
+        for i, row in tqdm(df.iterrows(), total=len(df)):
+
+            pix = row['pix']
+            if not pix in val_dic:
+                val_list.append(np.nan)
+                continue
+            vals = val_dic[pix]
+            val_list.append(vals)
+
+        df['landcover_GLC'] = val_list
+        return df
+    def add_landcover_classfication_to_df(self, df):
+
+        val_list=[]
+        for i,row in tqdm(df.iterrows(),total=len(df)):
+            pix=row['pix']
+            landcover=row['landcover_GLC']
+            if landcover==0 or landcover==4:
+                val_list.append('Evergreen')
+            elif landcover==2 or landcover==3 or landcover==5:
+                val_list.append('Deciduous')
+            elif landcover==6:
+                val_list.append('Mixed')
+            elif landcover==11 or landcover==12:
+                val_list.append('Shrub')
+            elif landcover==13 or landcover==14:
+                val_list.append('Grass')
+            elif landcover==16 or landcover==17 or landcover==18:
+                val_list.append('Cropland')
+            elif landcover==19 :
+                val_list.append('Bare')
+            else:
+                val_list.append(-999)
+        df['landcover_classfication']=val_list
+
+        return df
+
+
+    def add_aridity_to_df(self,df):  ## here is original aridity index not classification
+
+        f=data_root+rf'/Basedata/aridity_index.tif'
+
+        array, originX, originY, pixelWidth, pixelHeight = ToRaster().raster2array(f)
+        array = np.array(array, dtype=float)
+
+        val_dic = DIC_and_TIF().spatial_arr_to_dic(array)
+
+        # val_array = np.load(fdir + f)
+
+        # val_dic = DIC_and_TIF().spatial_arr_to_dic(val_array)
+        f_name='Aridity'
+        print(f_name)
+        val_list=[]
+        for i,row in tqdm(df.iterrows(),total=len(df)):
+            pix=row['pix']
+            if not pix in val_dic:
+                val_list.append(np.nan)
+                continue
+            val=val_dic[pix]
+            if val<-99:
+                val_list.append(np.nan)
+                continue
+            val_list.append(val)
+        df[f'{f_name}']=val_list
+
+        return df
+
+
+
     def __df_init(self):
         df = T.load_df(self.dff)
         T.print_head_n(df)
@@ -354,6 +511,9 @@ def main():
 
     # Pick_drought_events().run()
     Dataframe().run()
+    # dff = '/Volumes/SSD1T/Hotdrought_Resilience/results/analysis/Dataframe/arr/dataframe/dataframe.df'
+
+
 
 if __name__ == '__main__':
     main()
