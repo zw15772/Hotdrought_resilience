@@ -28,6 +28,7 @@ class Rt_Rs:
         print(len(df))
         df=self.df_clean(df)
         print(len(df))
+
         df_normal=df[df['drought_type'] == 'normal-drought']
 
         ## heatmap
