@@ -1,9 +1,7 @@
 # coding=utf-8
 import matplotlib.pyplot as plt
 import numpy as np
-from climate_indices import compute
-from climate_indices import indices
-import climate_indices
+
 from meta_info import *
 from multiprocessing import Pool, shared_memory
 from multiprocessing import Process, Value, Array

@@ -287,7 +287,7 @@ class GIMMS_NDVI:
                   如果是全年生长季 → 保留22年
         """
         fdir = join(data_root,'NDVI4g','annual_growing_season_NDVI')
-        outdir = join(data_root,'NDVI4g','annual_growth_season_NDVI_anomaly')
+        outdir = join(data_root,'NDVI4g','annual_growth_season_NDVI_relative_change')
         T.mk_dir(outdir, force=True)
         len_dic = {}
 
@@ -314,18 +314,15 @@ class GIMMS_NDVI:
                 if len(vals) <38:
                     continue
                 average_val=np.nanmean(vals)
-                anomaly=vals-average_val
+                anomaly=(vals-average_val)/average_val*100
                 if np.isnan(average_val):
                     continue
                 # plt.plot(anomaly)
                 # plt.title(pix)
                 # plt.show()
 
-
-
                 result_dic[pix] = anomaly
                 len_dic[pix] = len(anomaly)
-
 
 
             # 保存每个文件结果
@@ -353,6 +350,7 @@ class SPI:
         outdir =  join(data_root,'SPI','dic','spi09')
         T.mk_dir(outdir,force=True)
         Pre_Process().data_transform(fdir, outdir)
+
 class temperature:
     def __init__(self):
         self.datadir = join(data_root,'CRU_temp',)

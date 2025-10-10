@@ -83,7 +83,7 @@ pip install xgboost
 No such file or directory: 'cmake'
 brew install cmake
 '''
-this_root='/Volumes/SSD1T/Hotdrought_Resilience/'
+this_root=rf'F:\Hotdrought_Resilience\\'
 data_root = join(this_root,'data')
 results_root = join(this_root,'results')
 temp_root = join(this_root,'temp')

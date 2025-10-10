@@ -5,7 +5,7 @@ plt.rcParams['font.sans-serif'] = ['Arial']
 plt.rcParams['font.size'] = 8
 centimeter_factor = 1 / 2.54
 
-this_root='/Volumes/SSD1T/Hotdrought_Resilience/'
+this_root=rf'F:\Hotdrought_Resilience\\'
 data_root = join(this_root,'data')
 results_root = join(this_root,'results')
 temp_root = join(this_root,'temp')
