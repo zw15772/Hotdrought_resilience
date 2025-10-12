@@ -287,7 +287,7 @@ class GIMMS_NDVI:
                   如果是全年生长季 → 保留22年
         """
         fdir = join(data_root,'NDVI4g','annual_growing_season_NDVI')
-        outdir = join(data_root,'NDVI4g','annual_growth_season_NDVI_relative_change')
+        outdir = join(data_root,'NDVI4g','annual_growth_season_NDVI_detrend_relative_change')
         T.mk_dir(outdir, force=True)
         len_dic = {}
 
@@ -311,14 +311,29 @@ class GIMMS_NDVI:
 
                 if len(vals) == 0:
                     continue
+
+                if np.isnan(np.nanmean(vals)):
+                    continue
                 if len(vals) <38:
                     continue
-                average_val=np.nanmean(vals)
-                anomaly=(vals-average_val)/average_val*100
+                # print(type(vals), vals.dtype)
+                vals=list(vals)
+                detrend_vals=T.detrend_vals(vals)
+                # plt.plot(vals)
+                # plt.plot(detrend_vals)
+                # plt.title(pix)
+                # plt.legend(['vals','detrend_vals'])
+                # plt.show()
+                average_val=np.nanmean(detrend_vals)
+                # print(average_val)
+                anomaly=(detrend_vals-average_val)/average_val*100
                 if np.isnan(average_val):
                     continue
+                # plt.plot(detrend_vals)
                 # plt.plot(anomaly)
+                # plt.plot(vals)
                 # plt.title(pix)
+                # plt.legend(['detrend','anomaly','vals'])
                 # plt.show()
 
                 result_dic[pix] = anomaly
@@ -328,12 +343,12 @@ class GIMMS_NDVI:
             # 保存每个文件结果
             outf = join(outdir, f)
             np.save(outf, result_dic)
-        array_len = DIC_and_TIF(pixelsize=0.5).pix_dic_to_spatial_arr(len_dic)
-        outtif=join(outdir,'annual_growing_season_NDVI_len.tif')
-        DIC_and_TIF(pixelsize=0.5).arr_to_tif(array_len, outtif)
-        plt.imshow(array_len, cmap="jet")
-        plt.colorbar(label="Month Index (11=Dec)")
-        plt.show()
+        # array_len = DIC_and_TIF(pixelsize=0.5).pix_dic_to_spatial_arr(len_dic)
+        # outtif=join(outdir,'annual_growing_season_NDVI_len.tif')
+        # DIC_and_TIF(pixelsize=0.5).arr_to_tif(array_len, outtif)
+        # plt.imshow(array_len, cmap="jet")
+        # plt.colorbar(label="Month Index (11=Dec)")
+        # plt.show()
 
 
 class SPI:
@@ -757,11 +772,15 @@ class temperature:
                 std_val=np.nanstd(detrend_vals)
                 if std_val==0:
                     continue
-                anomaly=(vals-average_val)/std_val
+                anomaly=(detrend_vals-average_val)/std_val
                 if np.isnan(average_val):
                     continue
                 # plt.plot(anomaly)
+                # plt.plot(detrend_vals)
+                # plt.plot(vals)
+                #
                 # plt.title(pix)
+                # plt.legend(['zscore','detrend','original'])
                 # plt.show()
 
                 result_dic[pix] = anomaly

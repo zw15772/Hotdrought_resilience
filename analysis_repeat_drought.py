@@ -262,7 +262,9 @@ class Pick_multi_year_drought_events_year:
         pass
     def run(self):
         # self.pick_multiyear_drought_events_year()
-        self.add_temp_during_drought()
+        # self.add_temp_during_drought()
+        # self.add_NDVI_during_drought()
+        self.add_post_NDVI_to_df()
 
 
     def pick_multiyear_drought_events_year(self):
@@ -447,6 +449,171 @@ class Pick_multi_year_drought_events_year:
         outf=dff
         T.save_df(df,outf)
         T.df_to_excel(df,outf,random=True)
+
+
+    def add_NDVI_during_drought(self):
+
+        dff = join(self.outdir, 'Dataframe/multiyear_droughts.df')
+
+        temp_dic_path = join(data_root, r'NDVI4g\annual_growth_season_NDVI_detrend_relative_change')
+
+        # === 1. 读取数据 ===
+        df = T.load_df(dff)
+        temp_dic = T.load_npy_dir(temp_dic_path)
+
+        # === 2. 存放结果 ===
+        min_NDVI_list = []
+        min_NDVI_year_list = []
+
+        mean_NDVI_list = []
+
+        # === 2. 初始化结果列表 ===
+
+        # === 3. 假设数据从1982年开始 ===
+        base_year = 1982
+
+        for i, row in tqdm(df.iterrows(), total=len(df)):
+            pix = row['pix']
+            drought_years = row['drought_years']
+
+            # 转换字符串 '[2002, 2003, 2004]' 为列表
+            if isinstance(drought_years, str):
+                try:
+                    drought_years = eval(drought_years)
+                except:
+                    drought_years = []
+
+            # 没有温度数据
+            if pix not in temp_dic:
+                min_NDVI_list.append(np.nan)
+                min_NDVI_year_list.append(np.nan)
+                mean_NDVI_list.append(np.nan)
+                continue
+
+            temp_arr = np.array(temp_dic[pix], dtype=float)
+            all_years = np.arange(base_year, base_year + len(temp_arr))
+
+            # 筛选干旱年份对应的索引
+            drought_indices = [np.where(all_years == y)[0][0] for y in drought_years if y in all_years]
+
+            if len(drought_indices) == 0:
+                min_NDVI_list.append(np.nan)
+                min_NDVI_year_list.append(np.nan)
+                mean_NDVI_list.append(np.nan)
+                continue
+
+            drought_temps = temp_arr[drought_indices]
+
+            # === 计算指标 ===
+            min_NDVI = np.nanmin(drought_temps)
+            max_idx = np.nanargmax(drought_temps)
+            max_NDVI_year = drought_years[max_idx]
+            mean_NDVI = np.nanmean(drought_temps)
+
+            # === 添加结果 ===
+            min_NDVI_list.append(min_NDVI)
+            min_NDVI_year_list.append(max_NDVI_year)
+            mean_NDVI_list.append(mean_NDVI)
+
+        # === 4. 添加到 DataFrame ===
+        df['min_NDVI'] = min_NDVI_list
+        df['min_NDVI_year'] = min_NDVI_year_list
+
+        df['mean_NDVI'] = mean_NDVI_list
+
+
+        outf = dff
+        T.save_df(df, outf)
+        T.df_to_excel(df, outf, random=True)
+
+    pass
+
+
+    def add_post_NDVI_to_df(self):
+        """
+        向干旱事件表中添加 NDVI 恢复期（post-drought）数据：
+            - post1_NDVI: 干旱结束后1年的NDVI
+            - post2_NDVI: 干旱结束后2年的NDVI
+            - post12_NDVI_mean: post1和post2的平均
+        """
+
+        # === 1. 读取数据 ===
+        dff = join(self.outdir, 'Dataframe/multiyear_droughts.df')
+
+        NDVI_dic_path = join(data_root, r'NDVI4g\annual_growth_season_NDVI_detrend_relative_change')
+
+        df = T.load_df(dff)
+        ndvi_dic = T.load_npy_dir(NDVI_dic_path)
+
+        # === 2. 初始化结果列表 ===
+        post1_list, post2_list, post12_mean_list = [], [], []
+
+        base_year = 1982  # NDVI起始年份
+
+        for i, row in tqdm(df.iterrows(), total=len(df)):
+            pix = row['pix']
+            drought_years = row['drought_years']
+
+            # 把字符串转换成list
+            if isinstance(drought_years, str):
+                try:
+                    drought_years = eval(drought_years)
+                except:
+                    drought_years = []
+
+            # 没有NDVI数据的像元
+            if pix not in ndvi_dic:
+                post1_list.append(np.nan)
+                post2_list.append(np.nan)
+                post12_mean_list.append(np.nan)
+                continue
+
+            ndvi_arr = np.array(ndvi_dic[pix], dtype=float)
+            all_years = np.arange(base_year, base_year + len(ndvi_arr))
+
+            if len(drought_years) == 0:
+                post1_list.append(np.nan)
+                post2_list.append(np.nan)
+                post12_mean_list.append(np.nan)
+                continue
+
+            # === 干旱结束年份 ===
+            drought_end_year = max(drought_years)
+
+            # === post1 和 post2 年份 ===
+            post1_year = drought_end_year + 1
+            post2_year = drought_end_year + 2
+
+            # 检查年份是否在范围内
+            if post1_year not in all_years:
+                post1_ndvi = np.nan
+            else:
+                post1_ndvi = ndvi_arr[np.where(all_years == post1_year)[0][0]]
+
+            if post2_year not in all_years:
+                post2_ndvi = np.nan
+            else:
+                post2_ndvi = ndvi_arr[np.where(all_years == post2_year)[0][0]]
+
+            # === 平均值 ===
+            if np.isnan(post1_ndvi) and np.isnan(post2_ndvi):
+                post12_mean = np.nan
+            else:
+                post12_mean = np.nanmean([post1_ndvi, post2_ndvi])
+
+            post1_list.append(post1_ndvi)
+            post2_list.append(post2_ndvi)
+            post12_mean_list.append(post12_mean)
+
+        # === 3. 添加到表中 ===
+        df['post1_NDVI'] = post1_list
+        df['post2_NDVI'] = post2_list
+        df['post12_NDVI_mean'] = post12_mean_list
+
+        # === 4. 保存结果 ===
+        outf=join(self.outdir,'Dataframe/multiyear_droughts.df')
+        T.save_df(df, outf)
+        T.df_to_excel(df, outf, random=True)
 
 
 
@@ -781,11 +948,9 @@ class Dataframe:
         df = df.drop(columns=[
 
 
-                              'GS_NDVI_post_2_hot_pixel_average',
+                              'max_temp_month',
 
-                              'GS_NDVI_post_1_hot_pixel_average',
-            'GS_NDVI_post_3_hot_pixel_average',
-            'GS_NDVI_post_4_hot_pixel_average',
+
 
 
 
