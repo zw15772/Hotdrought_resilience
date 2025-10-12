@@ -363,7 +363,8 @@ class temperature:
         # self.long_term_mean()
         # self.extract_SOS_EOS_index()
         # self.extract_all_gs_temp_based_temp()
-        self.annual_growth_season_temp()
+        # self.annual_growth_season_temp()
+        self.annual_growth_season_temp_detrend_zscore()
         pass
 
 
@@ -713,6 +714,71 @@ class temperature:
         plt.show()
 
 
+    def annual_growth_season_temp_detrend_zscore(self):
+        """
+        计算每个像素逐年的生长季 LAI 平均值
+        - 北半球: 保留22年 (2003–2024)
+        - 南半球: 如果是跨年生长季 → 只保留21年 (2004–2024)
+                  如果是全年生长季 → 保留22年
+        """
+        fdir = join(data_root,'CRU_temp','annual_growth_season_temp_10degree')
+        outdir = join(data_root,'CRU_temp','annual_growth_season_temp_detrend_zscore_10degree')
+        T.mk_dir(outdir, force=True)
+        len_dic = {}
+
+        for f in tqdm(T.listdir(fdir)):
+            if not f.endswith('.npy'):
+                continue
+
+            dic = T.load_npy(join(fdir, f))
+            result_dic = {}
+
+            for pix in dic:
+                r, c = pix
+                # lon,lat=DIC_and_TIF().pix_to_lon_lat(pix) # # print(lon,lat) #
+                # if not lon == 149.5:
+                #     continue #
+                # if not lat== -36.5: #
+                #     continue
+                vals = dic[pix]
+                vals=np.array(vals, dtype=object)
+                # print(vals)
+
+                if len(vals) == 0:
+                    continue
+                if np.isnan(np.nanmean(vals)):
+                    continue
+                if len(vals) <38:
+                    continue
+                # print(type(vals), vals.dtype)
+                vals=list(vals)
+                detrend_vals=T.detrend_vals(vals)
+                average_val=np.nanmean(detrend_vals)
+                std_val=np.nanstd(detrend_vals)
+                if std_val==0:
+                    continue
+                anomaly=(vals-average_val)/std_val
+                if np.isnan(average_val):
+                    continue
+                # plt.plot(anomaly)
+                # plt.title(pix)
+                # plt.show()
+
+                result_dic[pix] = anomaly
+                len_dic[pix] = len(anomaly)
+
+
+            # 保存每个文件结果
+            outf = join(outdir, f)
+            np.save(outf, result_dic)
+        array_len = DIC_and_TIF(pixelsize=0.5).pix_dic_to_spatial_arr(len_dic)
+        # outtif=join(outdir,'annual_growing_season_temp_len.tif')
+        # DIC_and_TIF(pixelsize=0.5).arr_to_tif(array_len, outtif)
+        plt.imshow(array_len, cmap="jet")
+        plt.colorbar(label="Month Index (11=Dec)")
+        plt.show()
+
+
 class extract_growing_season_not_used:  ## not use in this project
     def __init__(self):
 
@@ -1016,9 +1082,9 @@ class extract_growing_season_not_used:  ## not use in this project
 
 def main():
 
-    GIMMS_NDVI().run()
+    # GIMMS_NDVI().run()
     # SPI().run()
-    # temperature().run()
+    temperature().run()
 
 
 if __name__ == '__main__':
