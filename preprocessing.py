@@ -27,7 +27,9 @@ class GIMMS_NDVI:
         # self.check_data()
         # self.extract_all_gs_NDVI_based_temp()
         # self.annual_growth_season_NDVI()
-        self.annual_growth_season_NDVI_anomaly()
+        # self.annual_growth_season_NDVI_anomaly()
+        self.annual_growth_season_NDVI_detrend()
+
 
         pass
 
@@ -338,6 +340,65 @@ class GIMMS_NDVI:
 
                 result_dic[pix] = anomaly
                 len_dic[pix] = len(anomaly)
+
+
+            # 保存每个文件结果
+            outf = join(outdir, f)
+            np.save(outf, result_dic)
+        # array_len = DIC_and_TIF(pixelsize=0.5).pix_dic_to_spatial_arr(len_dic)
+        # outtif=join(outdir,'annual_growing_season_NDVI_len.tif')
+        # DIC_and_TIF(pixelsize=0.5).arr_to_tif(array_len, outtif)
+        # plt.imshow(array_len, cmap="jet")
+        # plt.colorbar(label="Month Index (11=Dec)")
+        # plt.show()
+
+
+    def annual_growth_season_NDVI_detrend(self):
+        """
+
+        """
+        fdir = join(data_root,'NDVI4g','annual_growing_season_NDVI')
+        outdir = join(data_root,'NDVI4g','annual_growth_season_NDVI_detrend')
+        T.mk_dir(outdir, force=True)
+        len_dic = {}
+
+        for f in tqdm(T.listdir(fdir)):
+            if not f.endswith('.npy'):
+                continue
+
+            dic = T.load_npy(join(fdir, f))
+            result_dic = {}
+
+            for pix in dic:
+                r, c = pix
+                # lon,lat=DIC_and_TIF().pix_to_lon_lat(pix) # # print(lon,lat) #
+                # if not lon == 149.5:
+                #     continue #
+                # if not lat== -36.5: #
+                #     continue
+                vals = dic[pix]
+                vals=np.array(vals, dtype=object)
+
+
+                if len(vals) == 0:
+                    continue
+
+                if np.isnan(np.nanmean(vals)):
+                    continue
+                if len(vals) <38:
+                    continue
+                # print(type(vals), vals.dtype)
+                vals=list(vals)
+                detrend_vals=T.detrend_vals(vals)
+                # plt.plot(vals)
+                # plt.plot(detrend_vals)
+                # plt.title(pix)
+                # plt.legend(['vals','detrend_vals'])
+                # plt.show()
+                #
+
+                result_dic[pix] = detrend_vals
+                len_dic[pix] = len(detrend_vals)
 
 
             # 保存每个文件结果
@@ -1101,9 +1162,9 @@ class extract_growing_season_not_used:  ## not use in this project
 
 def main():
 
-    # GIMMS_NDVI().run()
+    GIMMS_NDVI().run()
     # SPI().run()
-    temperature().run()
+    # temperature().run()
 
 
 if __name__ == '__main__':
