@@ -427,6 +427,73 @@ class SPI:
         T.mk_dir(outdir,force=True)
         Pre_Process().data_transform(fdir, outdir)
 
+class caculating_SPI():
+    def __init__(self):
+        pass
+    def run(self):
+        fdir=r'F:\Hotdrought_Resilience\data\terraclimate\ppt\tif\\'
+        precip_list = []
+        for f in T.listdir(fdir):
+            if not f.endswith('.tif'):
+                continue
+            fpath = join(fdir, f)
+
+
+            array, origin, pixelWidth, pixelHeight, extent = ToRaster().raster2array(fpath)
+            precip_list.append(array)
+
+        precip_3d = np.stack(precip_list, axis=0)  # shape: (time, lat, lon)
+        print(precip_3d.shape)
+        precip_12mon = self.rolling_sum(precip_3d, window=12)
+        spi_12 = self.compute_spi_12(precip_12mon)
+
+        ### out tif
+        outdir=r'F:\Hotdrought_Resilience\data\terraclimate\ppt\spi\\'
+        T.mk_dir(outdir)
+        i=0
+        for f in T.listdir(fdir):
+            fname=f.split('.')[0]
+            outname=fname+'.tif'
+            array=spi_12[i,:,:]
+            outpath=join(outdir,outname)
+            i=i+1
+            DIC_and_TIF(pixelsize=0.5).arr_to_tif(array, outpath)
+
+
+
+        pass
+
+    def rolling_sum(self,arr, window=12):
+        """对时间维做滚动求和"""
+        result = np.full_like(arr, np.nan, dtype=float)
+        for i in range(window - 1, arr.shape[0]):
+            result[i] = np.nansum(arr[i - window + 1:i + 1], axis=0)
+        return result
+
+
+    def compute_spi_12(self,precip_12mon):
+        from scipy.stats import gamma, norm
+        t, nlat, nlon = precip_12mon.shape
+        spi_12 = np.full((t, nlat, nlon), np.nan)
+
+        for i in tqdm(range(nlat)):
+            for j in range(nlon):
+                ts = precip_12mon[:, i, j]
+                ts = ts[~np.isnan(ts)]
+                if len(ts) < 30:
+                    continue  # 太短的序列跳过
+
+                # 拟合 Gamma 分布
+                shape, loc, scale = gamma.fit(ts, floc=0)
+                cdf = gamma.cdf(ts, shape, loc=loc, scale=scale)
+                # 转换为标准正态分布值
+                spi = norm.ppf(cdf)
+
+                # 写回结果
+                spi_12[-len(spi):, i, j] = spi
+        return spi_12
+
+
 class temperature:
     def __init__(self):
         self.datadir = join(data_root,'CRU_temp',)
@@ -1162,9 +1229,10 @@ class extract_growing_season_not_used:  ## not use in this project
 
 def main():
 
-    GIMMS_NDVI().run()
+    # GIMMS_NDVI().run()
     # SPI().run()
     # temperature().run()
+    caculating_SPI().run()
 
 
 if __name__ == '__main__':
