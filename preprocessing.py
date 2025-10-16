@@ -427,71 +427,151 @@ class SPI:
         T.mk_dir(outdir,force=True)
         Pre_Process().data_transform(fdir, outdir)
 
-class caculating_SPI():
+import os
+import numpy as np
+from tqdm import tqdm
+from os.path import join
+from scipy.stats import gamma, norm
+
+class Calculating_SPI:
+
+
+
     def __init__(self):
-        pass
+        self.fdir = r'F:\Hotdrought_Resilience\data\terraclimate\ppt\tif\\'
+        self.outdir = r'F:\Hotdrought_Resilience\data\terraclimate\ppt\spi_dic\\'
+        self.outroot = r'F:\Hotdrought_Resilience\data\terraclimate\ppt\chunk_dic_new\\'
+        T.mk_dir(self.outroot)
+
     def run(self):
-        fdir=r'F:\Hotdrought_Resilience\data\terraclimate\ppt\tif\\'
-        precip_list = []
-        for f in T.listdir(fdir):
+        # self.tif_to_spatial_dict_distributed()
+        # self.concatenate_spatial_dict()
+        self.compute_spi_12()
+        pass
+
+    def tif_to_spatial_dict_distributed(self):
+        '''
+        written by Yang
+        '''
+        precip_dir = self.fdir
+        # Pre_Process().data_transform_with_date_list()
+        fname_list = []
+        flag = 0
+        bulk_number_i = 0
+        files_in_each_bulk = 60
+        files_in_total = len(T.listdir(precip_dir))
+        bulk_number = files_in_total // files_in_each_bulk + 1
+        for f in T.listdir(precip_dir):
             if not f.endswith('.tif'):
                 continue
-            fpath = join(fdir, f)
+            fname_list.append(f)
+            flag += 1
+            if flag == files_in_each_bulk:
+                print(fname_list)
+                start_date = fname_list[0].split('.')[0]
+                end_date = fname_list[-1].split('.')[0]
+                outdir_i = join(self.outdir, f"{start_date}-{end_date}")
+                if isdir(outdir_i):
+                    flag = 0
+                    fname_list = []
+                    bulk_number_i += 1
+                    continue
+                print(outdir_i)
+                print('------------------')
+                T.mk_dir(outdir_i,force=True)
+                Pre_Process().data_transform_with_date_list(precip_dir, outdir_i, fname_list, n=100000)
+                flag = 0
+                fname_list = []
+                bulk_number_i += 1
+            if bulk_number_i == bulk_number:
+                fname_list.append(f)
+        print(fname_list)
+        start_date = fname_list[0].split('.')[0]
+        end_date = fname_list[-1].split('.')[0]
+        outdir_i = join(self.outdir, f"{start_date}-{end_date}")
+        if isdir(outdir_i):
+            return
+        T.mk_dir(outdir_i,force=True)
+        Pre_Process().data_transform_with_date_list(precip_dir, outdir_i, fname_list, n=100000)
 
-
-            array, origin, pixelWidth, pixelHeight, extent = ToRaster().raster2array(fpath)
-            precip_list.append(array)
-
-        precip_3d = np.stack(precip_list, axis=0)  # shape: (time, lat, lon)
-        print(precip_3d.shape)
-        precip_12mon = self.rolling_sum(precip_3d, window=12)
-        spi_12 = self.compute_spi_12(precip_12mon)
-
-        ### out tif
-        outdir=r'F:\Hotdrought_Resilience\data\terraclimate\ppt\spi\\'
-        T.mk_dir(outdir)
-        i=0
-        for f in T.listdir(fdir):
-            fname=f.split('.')[0]
-            outname=fname+'.tif'
-            array=spi_12[i,:,:]
-            outpath=join(outdir,outname)
-            i=i+1
-            DIC_and_TIF(pixelsize=0.5).arr_to_tif(array, outpath)
-
-
-
+    def concatenate_spatial_dict(self):
+        fdir = r'F:\Hotdrought_Resilience\data\terraclimate\ppt\spatial_dict\\'
+        outdir = r'F:\Hotdrought_Resilience\data\terraclimate\ppt\concatenate_spatial_dict\\'
+        T.mk_dir(outdir,force=True)
+        flist = []
+        for date_range in T.listdir(fdir):
+            for f in T.listdir(join(fdir, date_range)):
+                flist.append(f)
+            break
+        for f in tqdm(flist):
+            spatial_dict = {}
+            spatial_dict_array = {}
+            for date_range in T.listdir(fdir):
+                fpath = join(fdir,date_range,f)
+                spatial_dict_i = T.load_npy(fpath)
+                for pix in spatial_dict_i:
+                    spatial_dict[pix] = []
+                break
+            for date_range in T.listdir(fdir):
+                fpath = join(fdir, date_range, f)
+                spatial_dict_i = T.load_npy(fpath)
+                for pix in spatial_dict_i:
+                    vals = spatial_dict_i[pix]
+                    spatial_dict[pix].append(vals)
+            for pix in spatial_dict:
+                vals_list = spatial_dict[pix]
+                vals_cat = np.concatenate(vals_list)
+                spatial_dict_array[pix] = vals_cat
+            outf = join(outdir,f)
+            T.save_npy(spatial_dict_array,outf)
         pass
 
-    def rolling_sum(self,arr, window=12):
-        """对时间维做滚动求和"""
-        result = np.full_like(arr, np.nan, dtype=float)
-        for i in range(window - 1, arr.shape[0]):
-            result[i] = np.nansum(arr[i - window + 1:i + 1], axis=0)
-        return result
 
 
-    def compute_spi_12(self,precip_12mon):
-        from scipy.stats import gamma, norm
-        t, nlat, nlon = precip_12mon.shape
-        spi_12 = np.full((t, nlat, nlon), np.nan)
+    def compute_spi_12(self, ):
+        """计算一个像素的 SPI-12 序列"""
+        fdir=r'F:\Hotdrought_Resilience\data\terraclimate\ppt\concatenate_spatial_dict\\'
+        outdir=r'F:\Hotdrought_Resilience\data\terraclimate\ppt\spi_dic\\'
+        T.mk_dir(outdir,force=True)
+        for f in tqdm(T.listdir(fdir)):
+            result_dic={}
 
-        for i in tqdm(range(nlat)):
-            for j in range(nlon):
-                ts = precip_12mon[:, i, j]
-                ts = ts[~np.isnan(ts)]
-                if len(ts) < 30:
-                    continue  # 太短的序列跳过
+            spatial_dict = T.load_npy(join(fdir,f))
+            for pix in spatial_dict:
+                ts = spatial_dict[pix]
+                if T.is_all_nan(ts):
+                    continue
 
-                # 拟合 Gamma 分布
-                shape, loc, scale = gamma.fit(ts, floc=0)
-                cdf = gamma.cdf(ts, shape, loc=loc, scale=scale)
-                # 转换为标准正态分布值
-                spi = norm.ppf(cdf)
+                t = len(ts)
+                spi = np.full(t, np.nan)
+                window = 12
 
-                # 写回结果
-                spi_12[-len(spi):, i, j] = spi
-        return spi_12
+                # 计算 12 个月滚动降水
+                precip_12mon = np.full(t, np.nan)
+                for i in range(window - 1, t):
+                    window_vals = ts[i - window + 1:i + 1]
+                    if np.isnan(window_vals).all():
+                        continue
+                    precip_12mon[i] = np.nansum(window_vals)
+
+                # 拟合 gamma 分布
+                valid = ~np.isnan(precip_12mon)
+                vals = precip_12mon[valid]
+                if len(vals) < 30:
+                    continue
+
+                try:
+                    shape, loc, scale = gamma.fit(vals, floc=0)
+                    cdf = gamma.cdf(precip_12mon, shape, loc=loc, scale=scale)
+                    spi = norm.ppf(cdf)
+                    spi[np.isnan(precip_12mon)] = np.nan
+                except Exception:
+                    spi[:] = np.nan
+
+
+                result_dic[pix] = spi
+            outf=join(outdir,f)
+            T.save_npy(result_dic,outf)
 
 
 class temperature:
@@ -1232,7 +1312,7 @@ def main():
     # GIMMS_NDVI().run()
     # SPI().run()
     # temperature().run()
-    caculating_SPI().run()
+    Calculating_SPI().run()
 
 
 if __name__ == '__main__':
