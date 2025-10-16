@@ -447,6 +447,7 @@ class Calculating_SPI:
         # self.tif_to_spatial_dict_distributed()
         # self.concatenate_spatial_dict()
         self.compute_spi_12()
+        # self.check_data()
         pass
 
     def tif_to_spatial_dict_distributed(self):
@@ -572,6 +573,20 @@ class Calculating_SPI:
                 result_dic[pix] = spi
             outf=join(outdir,f)
             T.save_npy(result_dic,outf)
+
+    def check_data(self):
+        fdir=r'F:\Hotdrought_Resilience\data\terraclimate\ppt\spi_dic\\'
+        for f in T.listdir(fdir):
+            if not 'per_pix_dic_100.npy' in f:
+                continue
+            spatial_dict = T.load_npy(join(fdir,f))
+            for pix in spatial_dict:
+                vals = spatial_dict[pix]
+                if T.is_all_nan(vals):
+                    continue
+                plt.plot(vals)
+                plt.show()
+                break
 
 
 class temperature:
