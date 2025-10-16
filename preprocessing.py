@@ -10,8 +10,13 @@ from pprint import pprint
 import warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=FutureWarning)
-
-
+import os
+from tqdm import tqdm
+from os.path import join
+from scipy.stats import gamma, norm
+# import climate_indices
+# from climate_indices import compute
+# from climate_indices import indices
 import matplotlib
 matplotlib.use('TkAgg')
 
@@ -427,11 +432,7 @@ class SPI:
         T.mk_dir(outdir,force=True)
         Pre_Process().data_transform(fdir, outdir)
 
-import os
-import numpy as np
-from tqdm import tqdm
-from os.path import join
-from scipy.stats import gamma, norm
+
 
 class Calculating_SPI:
 
@@ -527,52 +528,46 @@ class Calculating_SPI:
             T.save_npy(spatial_dict_array,outf)
         pass
 
-
-
-    def compute_spi_12(self, ):
+    def compute_spi_12(self):
         """计算一个像素的 SPI-12 序列"""
-        fdir=r'F:\Hotdrought_Resilience\data\terraclimate\ppt\concatenate_spatial_dict\\'
-        outdir=r'F:\Hotdrought_Resilience\data\terraclimate\ppt\spi_dic\\'
+        # running in wheat.snrenet.arizona.edu
+        fdir= '/data/home/wenzhang/Hotdrought_resilience/PPT/per_pix'
+        outdir='/data/home/wenzhang/Hotdrought_resilience/PPT/spi_dic'
+        scale = 12
         T.mk_dir(outdir,force=True)
-        for f in tqdm(T.listdir(fdir)):
-            result_dic={}
+        distrib = indices.Distribution('gamma')
+        Periodicity = compute.Periodicity(12)
+        params_list = []
+        for f in T.listdir(fdir):
+            params = [fdir,f,scale,distrib,Periodicity,outdir]
+            params_list.append(params)
+            # self.kernel_compute_spi_12(params)
+        MULTIPROCESS(self.kernel_compute_spi_12,params_list).run(process=16)
 
-            spatial_dict = T.load_npy(join(fdir,f))
-            for pix in spatial_dict:
-                ts = spatial_dict[pix]
-                if T.is_all_nan(ts):
-                    continue
-
-                t = len(ts)
-                spi = np.full(t, np.nan)
-                window = 12
-
-                # 计算 12 个月滚动降水
-                precip_12mon = np.full(t, np.nan)
-                for i in range(window - 1, t):
-                    window_vals = ts[i - window + 1:i + 1]
-                    if np.isnan(window_vals).all():
-                        continue
-                    precip_12mon[i] = np.nansum(window_vals)
-
-                # 拟合 gamma 分布
-                valid = ~np.isnan(precip_12mon)
-                vals = precip_12mon[valid]
-                if len(vals) < 30:
-                    continue
-
-                try:
-                    shape, loc, scale = gamma.fit(vals, floc=0)
-                    cdf = gamma.cdf(precip_12mon, shape, loc=loc, scale=scale)
-                    spi = norm.ppf(cdf)
-                    spi[np.isnan(precip_12mon)] = np.nan
-                except Exception:
-                    spi[:] = np.nan
-
-
-                result_dic[pix] = spi
-            outf=join(outdir,f)
-            T.save_npy(result_dic,outf)
+    def kernel_compute_spi_12(self,params):
+        fdir, f, scale, distrib, Periodicity, outdir = params
+        fpath = join(fdir, f)
+        spatial_dict_i = T.load_npy(fpath)
+        spi_dict_i = {}
+        for pix in spatial_dict_i:
+            vals = spatial_dict_i[pix]
+            vals = np.array(vals)
+            vals[vals<-999] = np.nan
+            if T.is_all_nan(vals):
+                continue
+            spi = climate_indices.indices.spi(
+                values=vals,
+                scale=scale,
+                distribution=distrib,
+                periodicity=Periodicity,
+                data_start_year=1958,
+                calibration_year_initial=1958,
+                calibration_year_final=2000,
+            )
+            spi_dict_i[pix] = spi
+        outf = join(outdir, f)
+        T.save_npy(spi_dict_i, outf)
+        pass
 
     def check_data(self):
         fdir=r'F:\Hotdrought_Resilience\data\terraclimate\ppt\spi_dic\\'
@@ -1328,6 +1323,8 @@ def main():
     # SPI().run()
     # temperature().run()
     Calculating_SPI().run()
+
+    pass
 
 
 if __name__ == '__main__':
