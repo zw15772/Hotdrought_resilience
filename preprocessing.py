@@ -1324,10 +1324,10 @@ class extract_growing_season_not_used:  ## not use in this project
 
 def main():
 
-    # GIMMS_NDVI().run()
+    GIMMS_NDVI().run()
     # SPI().run()
     # temperature().run()
-    Calculating_SPI().run()
+    # Calculating_SPI().run()
 
 
 if __name__ == '__main__':

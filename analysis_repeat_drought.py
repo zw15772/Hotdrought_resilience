@@ -263,13 +263,13 @@ class Pick_multi_year_drought_events_year:
 
         pass
     def run(self):
-        self.pick_multiyear_drought_events_year()
-        self.add_temp_during_drought()
-        self.add_NDVI_min_mean_during_drought()
-        self.add_total_NDVI_during_and_post_drought()
-        # self.add_post_NDVI_to_df()
+        # self.pick_multiyear_drought_events_year()
+        # self.add_temp_during_drought()
+        # self.add_NDVI_min_mean_during_drought()
+        # self.add_total_NDVI_during_and_post_drought()
         #
-        self.add_hot_drought()
+        # #
+        # self.add_hot_drought()
         self.generation_drought_character_df()
 
 
@@ -878,7 +878,7 @@ class check_Data():
         NDVI_fdir=data_root+rf'\NDVI4g\annual_growth_season_NDVI_detrend_relative_change\\'
         NDVI_dic=T.load_npy_dir(NDVI_fdir)
 
-        clean_events=np.load(results_root+rf'\\analysis_multi_year_drought\\clean_events.npy',allow_pickle=True).tolist()
+        clean_events=np.load(results_root+rf'\\analysis_multi_year_drought\\Dataframe\\clean_events.npy',allow_pickle=True).tolist()
 
         for pix in dic_spi.keys():
             if pix not in NDVI_dic:
@@ -1627,6 +1627,7 @@ class PLOT_multi_year_drought_vegetation():
         df=self.df_clean(df)
         print(len(df))
         # df=df[df['drought_type']=='Hot']
+        df=df[df['drought_type']=='Normal']
         spatial_dic_post1={}
         spatial_dic_post2={}
         spatial_dic_post3={}
@@ -1660,7 +1661,7 @@ class PLOT_multi_year_drought_vegetation():
         array_post3 = DIC_and_TIF().pix_dic_to_spatial_arr(spatial_dic_post3)
         array_post4 = DIC_and_TIF().pix_dic_to_spatial_arr(spatial_dic_post4)
 
-        outdir = join(self.outdir, 'tiff','Hot')
+        outdir = join(self.outdir, 'tiff','Normal')
         T.mk_dir(outdir)
 
         outf = join(outdir, 'NDVI_post1_total.tif')
@@ -1742,9 +1743,9 @@ def main():
     # Pick_drought_events_year().run()
     # Pick_multi_year_drought_events_year().run()
     # Dataframe().run()
-    # PLOT_multi_year_drought_vegetation().run()
+    PLOT_multi_year_drought_vegetation().run()
     # PLOT_multi_year_drought_characteristic().run()
-    check_Data().run()
+    # check_Data().run()
     pass
 
 if __name__ == '__main__':
