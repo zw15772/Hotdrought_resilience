@@ -23,6 +23,9 @@ class Pick_drought_events:
     def run(self):
 
         self.detect_single_year_droughts()
+        ## add attribute
+        df=join(self.outdir,'Dataframe/multiyear_droughts.df')
+
         # self.check_dic_time_series()
 
 
@@ -107,6 +110,8 @@ class Pick_drought_events:
         print(f"Detected {len(df_out)} single-year droughts.")
         return df_out
 
+
+
     def check_dic_time_series(self):
         fdir_SPI = data_root + rf'\SPI\dic\spi12\\'
         dic_spi = T.load_npy_dir(fdir_SPI)
@@ -188,16 +193,17 @@ class Dataframe:
         df = self.__df_init()
         # df = self.add_SOS_EOS(df)
         # df = self.filter_drought_events_via_SOS_EOS(df)
-        df=self.add_temp_to_df(df)
+        # df=self.add_temp_to_df(df)
+        df=self.add_hot_drought(df)
         # self.check_df(df)
 
-        df=self.add_total_NDVI_during_and_post_drought(df)
-        df=self.add_aridity_to_df(df)
-        df=self.add_MODIS_LUCC_to_df(df)
-        df=self.add_koppen_to_df(df)
+        # df=self.add_total_NDVI_during_and_post_drought(df)
+        # df=self.add_aridity_to_df(df)
+        # df=self.add_MODIS_LUCC_to_df(df)
+        # df=self.add_koppen_to_df(df)
         # df=self.add_tif_to_df(df)
-        df=self.add_landcover_data_to_df(df)
-        df=self.add_landcover_classfication_to_df(df)
+        # df=self.add_landcover_data_to_df(df)
+        # df=self.add_landcover_classfication_to_df(df)
         # df=self.drop_field_df(df)
         # df=self.add_tif_to_df(df)
 
@@ -272,13 +278,7 @@ class Dataframe:
 
         return df
 
-    def check_df(self,df):
-        global_land_tif = join(this_root,'conf/land.tif')
-        DIC_and_TIF().plot_df_spatial_pix(df,global_land_tif)
-        plt.show()
-        pass
-
-    def add_temp_to_df(self,df):
+    def add_temp_to_df(self, df):
 
         Temp_fdir = join(data_root, rf'CRU_temp\annual_growth_season_temp_detrend_zscore_10degree')
         Temp_dict = T.load_npy_dir(Temp_fdir)
@@ -315,6 +315,21 @@ class Dataframe:
         df = df.dropna(subset=['Temp'])
         df = df.reset_index(drop=True)
         return df
+
+    def add_hot_drought(self,df):
+
+
+        df['drought_type'] = np.where(df['Temp'] > 1, 'Hot', 'Normal')
+
+        return df
+
+    def check_df(self,df):
+        global_land_tif = join(this_root,'conf/land.tif')
+        DIC_and_TIF().plot_df_spatial_pix(df,global_land_tif)
+        plt.show()
+        pass
+
+
 
 
     def add_GS_NDVI(self,df):
@@ -759,8 +774,8 @@ class Dataframe:
 class PLOT_single_drought_vegetation():
     def __init__(self):
 
-        self.result_root=r'F:\Hotdrought_Resilience\results\\analysis_multi_year_drought\\'
-        self.dff=join(self.result_root,'Dataframe/multiyear_droughts.df')
+        self.result_root=r'F:\Hotdrought_Resilience\results\\analysis_single_year_drought\\'
+        self.dff=join(self.result_root,'Dataframe/single_year_droughts.df')
         self.outdir=join(self.result_root,'PLOT_vegetation_response')
         T.mk_dir(self.outdir,True)
 
