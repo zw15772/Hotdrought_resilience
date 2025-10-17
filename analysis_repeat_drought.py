@@ -263,14 +263,14 @@ class Pick_multi_year_drought_events_year:
 
         pass
     def run(self):
-        # self.pick_multiyear_drought_events_year()
-        # self.add_temp_during_drought()
+        self.pick_multiyear_drought_events_year()
+        self.add_temp_during_drought()
         # self.add_NDVI_min_mean_during_drought()
-        # self.add_total_NDVI_during_and_post_drought()
+        self.add_total_NDVI_during_and_post_drought()
         #
         # #
         # self.add_hot_drought()
-        self.generation_drought_character_df()
+        # self.generation_drought_character_df()
 
 
     def pick_multiyear_drought_events_year(self):
@@ -282,7 +282,7 @@ class Pick_multi_year_drought_events_year:
         df_droughts = self.detect_multiyear_droughts(
             SPI_dict=SPI_dict,
             years=years,
-            drought_threshold=-1.5,
+            drought_threshold=-1,
             min_duration=2,
             recovery_gap=4
         )
@@ -293,7 +293,7 @@ class Pick_multi_year_drought_events_year:
         T.save_df(df_droughts, outpath)
         T.df_to_excel(df_droughts, outpath)
 
-    def detect_multiyear_droughts(self, SPI_dict, years, drought_threshold=-1.5, min_duration=2, recovery_gap=4):
+    def detect_multiyear_droughts(self, SPI_dict, years, drought_threshold=-1, min_duration=2, recovery_gap=4):
         """
         识别每个像元的 multi-year drought 事件并提取属性
 
@@ -573,7 +573,7 @@ class Pick_multi_year_drought_events_year:
     def add_total_NDVI_during_and_post_drought(self):
 
         dff = join(self.outdir, 'Dataframe/multiyear_droughts.df')
-        temp_dic_path = join(data_root, r'NDVI4g\annual_growth_season_NDVI_detrend_relative_change')
+        temp_dic_path = join(data_root, r'NDVI4g\annual_growth_season_NDVI_detrend')
 
         # === 1. 读取数据 ===
         df = T.load_df(dff)
@@ -655,12 +655,25 @@ class Pick_multi_year_drought_events_year:
             post3 = np.nansum(post_vals[:3])  # 1 + 2 + 3
             post4 = np.nansum(post_vals[:4])  # 1 + 2 + 3 + 4
 
+
+            def safe_ratio(a, b):
+                if np.isnan(a) or np.isnan(b) or b == 0:
+                    return np.nan
+                return a / b
+
+            post1_ratio = safe_ratio(post1, total_drought)
+            post2_ratio = safe_ratio(post2, total_drought)
+            post3_ratio = safe_ratio(post3, total_drought)
+            post4_ratio = safe_ratio(post4, total_drought)
+
+
             # === 存储结果 ===
             total_drought_list.append((total_drought))
-            post1_list.append(abs(post1)-abs(total_drought))
-            post2_list.append(abs(post2)-abs(total_drought))
-            post3_list.append(abs(post3)-abs(total_drought))
-            post4_list.append(abs(post4)-abs(total_drought))
+
+            post1_list.append(post1_ratio)
+            post2_list.append(post2_ratio)
+            post3_list.append(post3_ratio)
+            post4_list.append(post4_ratio)
             drought_len_list.append(drought_len)
 
         # === 3. 写入 DataFrame ===
@@ -1627,21 +1640,25 @@ class PLOT_multi_year_drought_vegetation():
         df=self.df_clean(df)
         print(len(df))
         # df=df[df['drought_type']=='Hot']
-        df=df[df['drought_type']=='Normal']
+        # df=df[df['drought_type']=='Normal']
         spatial_dic_post1={}
         spatial_dic_post2={}
         spatial_dic_post3={}
         spatial_dic_post4={}
+        spatial_dic_during_drought={}
 
 
 
         df_group=T.df_groupby(df,'pix')
         for pix in df_group:
             df_pix=df_group[pix]
+            val_list_during_drought=df_pix['NDVI_total_drought'].tolist()
             val_list_post1=df_pix['NDVI_post1_total'].tolist()
             val_list_post2=df_pix['NDVI_post2_total'].tolist()
             val_list_post3=df_pix['NDVI_post3_total'].tolist()
             val_list_post4=df_pix['NDVI_post4_total'].tolist()
+
+            val_list_during_drought_mean=np.nanmean(val_list_during_drought)
 
 
 
@@ -1655,13 +1672,15 @@ class PLOT_multi_year_drought_vegetation():
             spatial_dic_post2[pix]=val_post2_mean
             spatial_dic_post3[pix] = val_post3_mean
             spatial_dic_post4[pix]=val_post4_mean
+            spatial_dic_during_drought[pix]=val_list_during_drought_mean
 
         array_post1 = DIC_and_TIF().pix_dic_to_spatial_arr(spatial_dic_post1)
         array_post2 = DIC_and_TIF().pix_dic_to_spatial_arr(spatial_dic_post2)
         array_post3 = DIC_and_TIF().pix_dic_to_spatial_arr(spatial_dic_post3)
         array_post4 = DIC_and_TIF().pix_dic_to_spatial_arr(spatial_dic_post4)
+        array_during_drought = DIC_and_TIF().pix_dic_to_spatial_arr(spatial_dic_during_drought)
 
-        outdir = join(self.outdir, 'tiff','Normal')
+        outdir = join(self.outdir, 'tiff','ALL')
         T.mk_dir(outdir)
 
         outf = join(outdir, 'NDVI_post1_total.tif')
@@ -1678,6 +1697,10 @@ class PLOT_multi_year_drought_vegetation():
 
         outf = join(outdir, 'NDVI_post4_total.tif')
         DIC_and_TIF().arr_to_tif(array_post4, outf)
+        print(outf)
+
+        outf = join(outdir, 'NDVI_drought_total.tif')
+        DIC_and_TIF().arr_to_tif(array_during_drought, outf)
         print(outf)
 
         pass
@@ -1741,8 +1764,8 @@ class PLOT_multi_year_drought_vegetation():
 
 def main():
     # Pick_drought_events_year().run()
-    # Pick_multi_year_drought_events_year().run()
-    # Dataframe().run()
+    Pick_multi_year_drought_events_year().run()
+    Dataframe().run()
     PLOT_multi_year_drought_vegetation().run()
     # PLOT_multi_year_drought_characteristic().run()
     # check_Data().run()
