@@ -756,7 +756,7 @@ class Dataframe:
         return df
 
 
-class PLOT_multi_year_drought_vegetation():
+class PLOT_single_drought_vegetation():
     def __init__(self):
 
         self.result_root=r'F:\Hotdrought_Resilience\results\\analysis_multi_year_drought\\'
