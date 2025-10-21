@@ -269,7 +269,7 @@ class Pick_multi_year_drought_events_year:
         self.add_total_NDVI_during_and_post_drought()
         #
         # #
-        # self.add_hot_drought()
+        self.add_hot_drought()
         # self.generation_drought_character_df()
 
 
@@ -282,9 +282,9 @@ class Pick_multi_year_drought_events_year:
         df_droughts = self.detect_multiyear_droughts(
             SPI_dict=SPI_dict,
             years=years,
-            drought_threshold=-1,
+            drought_threshold=-2,
             min_duration=2,
-            recovery_gap=4
+
         )
         outdir=self.outdir+'Dataframe\\'
         T.mk_dir(outdir)
@@ -293,7 +293,7 @@ class Pick_multi_year_drought_events_year:
         T.save_df(df_droughts, outpath)
         T.df_to_excel(df_droughts, outpath)
 
-    def detect_multiyear_droughts(self, SPI_dict, years, drought_threshold=-1, min_duration=2, recovery_gap=4):
+    def detect_multiyear_droughts(self, SPI_dict, years, drought_threshold, min_duration,):
         """
         识别每个像元的 multi-year drought 事件并提取属性
 
@@ -313,7 +313,7 @@ class Pick_multi_year_drought_events_year:
 
         result_records = []
 
-        extreme_threshold = -1.5
+
 
         for pix, spi_2d in tqdm(SPI_dict.items(), desc="Detecting multiyear droughts"):
             vals=SPI_dict[pix]
@@ -326,10 +326,10 @@ class Pick_multi_year_drought_events_year:
                 continue
 
 
-            # === Step 1: 年均 SPI12 ===
+            # === Step 1: 年度 SPI ===
             spi_annual = np.nanmin(spi_2d, axis=1)
 
-            # === Step 2: 干旱年标记 ===
+            # === Step 2: 干旱标记 ===
             drought_mask = spi_annual < drought_threshold
 
             # === Step 3: 连续干旱段识别 ===
@@ -337,55 +337,25 @@ class Pick_multi_year_drought_events_year:
             events = []
             for i, is_drought in enumerate(drought_mask):
                 if is_drought:
-                    if start is np.nan:
+                    if np.isnan(start):
                         start = i
                     end = i
                 else:
-                    if start is not np.nan:
-                        events.append((start, end))
+                    if not np.isnan(start):
+                        events.append((int(start), int(end)))
                         start, end = np.nan, np.nan
-            if start is not np.nan:
-                events.append((start, end))
+            if not np.isnan(start):
+                events.append((int(start), int(end)))
 
-
-             # === Step 4: 多年代干旱筛选 ===
+            # === Step 4: 筛选多年代干旱 ===
             multiyear_events = []
             for (s, e) in events:
                 duration = e - s + 1
                 if duration >= min_duration:
                     multiyear_events.append((s, e))
 
-            # === Step 5: Clean window 检查 ===
-            clean_events = []
+            # === Step 5: 记录事件 ===
             for (s, e) in multiyear_events:
-
-                # (0) 严格边界保护 —— 前后4年必须在数据范围内
-                if s - recovery_gap < 0 or e + 1 + recovery_gap >= len(years):
-                    continue
-
-                # (1) 定义前后窗口
-                pre_window = np.arange(s - recovery_gap, s)
-                post_window = np.arange(e + 1, e + 1 + recovery_gap)
-
-                # (2) 检查单年极端干旱
-                if np.any(spi_annual[pre_window] < extreme_threshold) or np.any(
-                        spi_annual[post_window] < extreme_threshold):
-                    continue
-
-                # (3) 检查前后窗口是否有其他 multi-drought
-                overlap = False
-                for (s2, e2) in multiyear_events:
-                    if (s2, e2) == (s, e):
-                        continue
-                    other_years = set(range(s2, e2 + 1))
-                    win_years = set(pre_window) | set(post_window)
-                    if len(other_years & win_years) > 0:
-                        overlap = True
-                        break
-                if overlap:
-                    continue
-
-                    # === Step 6: 记录干净事件 ===
                 sub_spi = spi_2d[s:e + 1, :]
                 min_idx = np.nanargmin(sub_spi)
                 min_val = np.nanmin(sub_spi)
@@ -394,21 +364,38 @@ class Pick_multi_year_drought_events_year:
                 min_month = month_idx + 1
 
                 drought_years = [int(y) for y in years[s:e + 1]]
+                # === Step 6: 干旱严重度 ===
+
+                sub_spi = spi_annual[s:e + 1]
+                print(sub_spi)
+                if len(sub_spi) > 0:
+                    severity = np.nansum(np.abs(sub_spi))
+                else:
+                    severity = np.nan
+
+                # === Step 6.5: 干旱后4年的 SPI 平均值 ===
+                post_idx = [e + j for j in range(1, 5) if (e + j) < len(spi_annual)]
+                if len(post_idx) > 0:
+                    post_mean_spi = np.nanmean(spi_annual[post_idx])
+                else:
+                    post_mean_spi = np.nan
+
                 record = {
                     "pix": pix,
                     "drought_years": drought_years,
                     "SPI_min": float(min_val),
                     "SPI_min_year": int(min_year),
                     "SPI_min_month": int(min_month),
-                    "duration": len(drought_years)
+                    "duration": len(drought_years),
+                    "Drought_severity": float(severity),
+                    "Post4yr_mean_SPI": float(post_mean_spi),
                 }
-                clean_events.append(record)
+                result_records.append(record)
 
-            result_records.extend(clean_events)
-        pprint(result_records)
-        T.save_npy(result_records, self.outdir + 'clean_events')
-        #
+
+            # === 输出 ===
         df_out = pd.DataFrame(result_records)
+        T.save_df(df_out, self.outdir + 'clean_events.df')
         return df_out
 
 
@@ -580,8 +567,8 @@ class Pick_multi_year_drought_events_year:
         ndvi_dic = T.load_npy_dir(temp_dic_path)
 
         # === 2. 初始化结果 ===
-        # === 2. 初始化结果 ===
-        total_drought_list = []
+
+        rt_list = []
         post1_list, post2_list, post3_list, post4_list = [], [], [], []
         drought_len_list = []
 
@@ -602,7 +589,7 @@ class Pick_multi_year_drought_events_year:
                 drought_years = []
 
             if len(drought_years) == 0:
-                total_drought_list.append(np.nan)
+                rt_list.append(np.nan)
                 post1_list.append(np.nan)
                 post2_list.append(np.nan)
                 post3_list.append(np.nan)
@@ -612,7 +599,7 @@ class Pick_multi_year_drought_events_year:
 
             # --- NDVI 缺失 ---
             if pix not in ndvi_dic:
-                total_drought_list.append(np.nan)
+                rt_list.append(np.nan)
                 post1_list.append(np.nan)
                 post2_list.append(np.nan)
                 post3_list.append(np.nan)
@@ -621,12 +608,13 @@ class Pick_multi_year_drought_events_year:
                 continue
 
             ndvi_arr = np.array(ndvi_dic[pix], dtype=float)
+            NDVI_average = np.nanmean(ndvi_arr)
             all_years = np.arange(base_year, base_year + len(ndvi_arr))
 
             # --- 提取干旱期 ---
             drought_indices = [np.where(all_years == y)[0][0] for y in drought_years if y in all_years]
             if len(drought_indices) == 0:
-                total_drought_list.append(np.nan)
+                rt_list.append(np.nan)
                 post1_list.append(np.nan)
                 post2_list.append(np.nan)
                 post3_list.append(np.nan)
@@ -635,7 +623,7 @@ class Pick_multi_year_drought_events_year:
                 continue
 
             ndvi_drought = ndvi_arr[drought_indices]
-            total_drought = np.nansum(ndvi_drought)
+            total_drought = np.nanmean(ndvi_drought)
             drought_len = len(drought_indices)
             drought_end_year = max(drought_years)
 
@@ -651,9 +639,9 @@ class Pick_multi_year_drought_events_year:
 
             # === 累积 ===
             post1 = post_vals[0]
-            post2 = np.nansum(post_vals[:2])  # 1 + 2
-            post3 = np.nansum(post_vals[:3])  # 1 + 2 + 3
-            post4 = np.nansum(post_vals[:4])  # 1 + 2 + 3 + 4
+            post2 = np.nanmean(post_vals[:2])  # 1 + 2
+            post3 = np.nanmean(post_vals[:3])  # 1 + 2 + 3
+            post4 = np.nanmean(post_vals[:4])  # 1 + 2 + 3 + 4
 
 
             def safe_ratio(a, b):
@@ -661,15 +649,15 @@ class Pick_multi_year_drought_events_year:
                     return np.nan
                 return a / b
 
-            post1_ratio = safe_ratio(post1, total_drought)
-            post2_ratio = safe_ratio(post2, total_drought)
-            post3_ratio = safe_ratio(post3, total_drought)
-            post4_ratio = safe_ratio(post4, total_drought)
+            post1_ratio = safe_ratio(post1, NDVI_average)
+            post2_ratio = safe_ratio(post2, NDVI_average)
+            post3_ratio = safe_ratio(post3, NDVI_average)
+            post4_ratio = safe_ratio(post4, NDVI_average)
+            rt_ratio=safe_ratio(total_drought, NDVI_average)
 
 
             # === 存储结果 ===
-            total_drought_list.append((total_drought))
-
+            rt_list.append((rt_ratio))
             post1_list.append(post1_ratio)
             post2_list.append(post2_ratio)
             post3_list.append(post3_ratio)
@@ -677,11 +665,11 @@ class Pick_multi_year_drought_events_year:
             drought_len_list.append(drought_len)
 
         # === 3. 写入 DataFrame ===
-        df["NDVI_total_drought"] = total_drought_list
-        df["NDVI_post1_total"] = post1_list
-        df["NDVI_post2_total"] = post2_list
-        df["NDVI_post3_total"] = post3_list
-        df["NDVI_post4_total"] = post4_list
+        df["NDVI_rt"] = rt_list
+        df["NDVI_post1_rs"] = post1_list
+        df["NDVI_post2_rs"] = post2_list
+        df["NDVI_post3_rs"] = post3_list
+        df["NDVI_post4_rs"] = post4_list
 
 
         # === 4. 保存 ===
@@ -975,7 +963,7 @@ class Dataframe:
         df = self.__load_df()
         # df = self.add_first_drought_NDVI_anomaly(df)
         # df = self.add_second_drought_NDVI_anomaly(df)
-        # df = self.add_post_drought_n_years(df)
+
         df=self.add_aridity_to_df(df)
         df = self.add_MODIS_LUCC_to_df(df)
         df = self.add_koppen_to_df(df)
@@ -1081,75 +1069,6 @@ class Dataframe:
         T.save_df(df,self.dff)
         T.df_to_excel(df,self.dff)
 
-    def add_first_drought_NDVI_anomaly(self,df):
-        fdir = join(data_root,r'NDVI4g\annual_growth_season_NDVI_relative_change')
-        spatial_dict = T.load_npy_dir(fdir)
-        result_dict = {}
-        for i,row in tqdm(df.iterrows(),total=len(df),desc='add NDVI anomaly'):
-            pix = row['pix']
-            if not pix in spatial_dict:
-                continue
-            vals = spatial_dict[pix]
-            vals_dict = T.dict_zip(global_year_range_list,vals)
-            first_drought_year_list = row['first_drought']
-            drought_year_vals = []
-            for year in first_drought_year_list:
-                val = vals_dict[year]
-                drought_year_vals.append(val)
-            drought_year_vals_mean = np.nanmean(drought_year_vals)
-            # result_dict[i] = {}
-            result_dict[i] = drought_year_vals_mean
-        df['first_drought_NDVI_relative_change'] = result_dict
-        return df
-
-    def add_second_drought_NDVI_anomaly(self,df):
-        fdir = join(data_root, r'NDVI4g\annual_growth_season_NDVI_relative_change')
-        spatial_dict = T.load_npy_dir(fdir)
-        result_dict = {}
-        for i, row in tqdm(df.iterrows(), total=len(df), desc='add NDVI anomaly'):
-            pix = row['pix']
-            if not pix in spatial_dict:
-                continue
-            vals = spatial_dict[pix]
-            vals_dict = T.dict_zip(global_year_range_list, vals)
-            second_drought_year_list = row['second_drought']
-            drought_year_vals = []
-            for year in second_drought_year_list:
-                val = vals_dict[year]
-                drought_year_vals.append(val)
-            drought_year_vals_mean = np.nanmean(drought_year_vals)
-            # result_dict[i] = {}
-            result_dict[i] = drought_year_vals_mean
-        df['second_drought_NDVI_relative_change'] = result_dict
-        return df
-
-    def add_post_drought_n_years(self,df):
-        for n in [1,2,3,4]:
-            fdir = join(data_root, r'NDVI4g\annual_growth_season_NDVI_relative_change')
-            spatial_dict = T.load_npy_dir(fdir)
-            result_dict = {}
-            for i, row in tqdm(df.iterrows(), total=len(df), desc='add NDVI anomaly'):
-                pix = row['pix']
-                if not pix in spatial_dict:
-                    continue
-                vals = spatial_dict[pix]
-                vals_dict = T.dict_zip(global_year_range_list, vals)
-                second_drought_year_list = row['second_drought']
-                the_last_year = second_drought_year_list[-1]
-                post_drought_vals = []
-                for year in range(the_last_year+1,the_last_year+n+1):
-                    if not year in vals_dict:
-                        post_drought_vals = []
-                        break
-                    val = vals_dict[year]
-                    post_drought_vals.append(val)
-                if len(post_drought_vals) == 0:
-                    continue
-                post_drought_vals_mean = np.nanmean(post_drought_vals)
-                # result_dict[i] = {}
-                result_dict[i] = post_drought_vals_mean
-            df[f'post_drought_{n}_years_relative_change'] = result_dict
-        return df
 
     def check_df(self,df):
         df = df.dropna(how='any')
@@ -1423,9 +1342,10 @@ class PLOT_multi_year_drought_vegetation():
         # self.plot_bar_1()
         # self.plot_NDVI_during_drought()
         # self.plot_NDVI_post_drought_vals()
-        self.plot_NDVI_post_drought_resilience()
+        # self.plot_NDVI_post_drought_resilience()
         # self.plot_NDVI_hot_normal_during_drought_NDVI()
         # self.plot_hot_minus_normal_during_drought_NDVI()
+        self.heatmap_post_drought()
 
         pass
 
@@ -1436,6 +1356,7 @@ class PLOT_multi_year_drought_vegetation():
         # exit()
         df=df[df['MODIS_LUCC'] != 12]
         df = df[df['Koppen'] != 5]
+        df = df[df['Koppen'] > -9999]
         df = df[df['landcover_classfication'] != 'Bare']
 
         df = df[df['landcover_classfication'] != 'Cropland']
@@ -1503,32 +1424,80 @@ class PLOT_multi_year_drought_vegetation():
 
 
     def plot_bar_1(self):
-        dff=join(self.result_root,'Dataframe/arr/Dataframe//dataframe.df')
-        # dff=r'F:\Hotdrought_Resilience\results\analysis_repeat_drought\Dataframe\arr\Dataframe\dataframe.df'
 
+        dff = self.dff
         df = T.load_df(dff)
         df = self.df_clean(df)
-        # df=df[df['first_drought_type']=='Normal-drought']
-        df = df[df['first_drought_type'] == 'Hot-drought']
 
-        T.print_head_n(df)
-        df=df[df['Aridity']>.65]
-        val_first=np.nanmean(df[f'first_drought_NDVI_relative_change'])
-        val_second = np.nanmean(df[f'second_drought_NDVI_relative_change'])
 
-        plt.bar([1],[val_first],width=0.3,color='steelblue',edgecolor='k',alpha=0.8,label='First drought')
-        plt.bar([2],[val_second],width=0.3,color='indianred',edgecolor='k',alpha=0.8,label='Second drought')
-        plt.xticks([1,2],['First drought','Second drought'],rotation=45,ha='right',fontsize=12)
-        plt.xlabel('Aridity Index', fontsize=12)
-        plt.ylabel('Mean GS NDVI', fontsize=12)
-        plt.yticks(fontsize=12)
-        plt.ylim(-10, 2)
-        plt.grid(alpha=0.3)
-        plt.tight_layout()
+        print(len(df))
+        df = df[df['Post4yr_mean_SPI'] > -1]
+        df = df[df['Aridity'] <0.65]
+        # df = df[df['max_temp']>1]
+
+        # === Step 1. 分组 duration ===
+        def duration_group(x):
+            if x == 2:
+                return 2
+            elif x == 3:
+                return 3
+            else:
+                return 4  # 4 表示 ≥4
+
+        df['duration_group'] = df['duration'].apply(duration_group)
+
+        # Step 2: 计算每个 duration 下各阶段 unrecovered ratio
+        threshold = .95
+        summary = []
+
+        for d in [2, 3, 4]:
+            sub = df[df['duration_group'] == d]
+            if len(sub) == 0:
+                continue
+
+            # 干旱年 (RT)
+            rt_unrecover = np.sum(sub['NDVI_rt'] < threshold) / len(sub)
+
+            # 干旱后 1–4 年 (RS1–RS4)
+            rs1_unrecover = np.sum(sub['NDVI_post1_rs'] < threshold) / len(sub)
+            rs2_unrecover = np.sum(sub['NDVI_post2_rs'] < threshold) / len(sub)
+            rs3_unrecover = np.sum(sub['NDVI_post3_rs'] < threshold) / len(sub)
+            rs4_unrecover = np.sum(sub['NDVI_post4_rs'] < threshold) / len(sub)
+
+
+            summary.append({
+                'duration_group': d,
+                'rt': rt_unrecover,
+                'rs1': rs1_unrecover,
+                'rs2': rs2_unrecover,
+                'rs3': rs3_unrecover,
+                'rs4': rs4_unrecover,
+                'n_events': len(sub)
+            })
+
+        df_sum = pd.DataFrame(summary)
+        print(df_sum)
+        # --- 绘图 ---
+
+        labels = ['RT', 'RS1', 'RS2', 'RS3', 'RS4']
+        x = np.arange(len(labels))
+        width = 0.18
+
+        plt.figure(figsize=(9, 5))
+
+        for idx, d in enumerate([2, 3, 4, ]):
+            sub = df_sum[df_sum['duration_group'] == d]
+            plt.bar(x + (idx - 1.5) * width,
+                    [sub['rt'].values[0], sub['rs1'].values[0], sub['rs2'].values[0], sub['rs3'].values[0],
+                     sub['rs4'].values[0]],
+                    width, label=f'Dur={d if d < 5 else ">4"}')
+
+        plt.xticks(x, labels)
+        plt.ylabel('Unrecovered ratio (NDVI < 0.95)')
+        plt.ylim(0, 1.3)
+        plt.legend(title='Duration')
+        plt.title('Unrecovered ratio across drought durations and recovery years')
         plt.show()
-
-
-        pass
 
     def plot_NDVI_during_drought(self):
         df=T.load_df(self.dff)
@@ -1639,6 +1608,7 @@ class PLOT_multi_year_drought_vegetation():
         print(len(df))
         df=self.df_clean(df)
         print(len(df))
+        df=df[df['Post4yr_mean_SPI']>-2]
         # df=df[df['drought_type']=='Hot']
         # df=df[df['drought_type']=='Normal']
         spatial_dic_post1={}
@@ -1652,11 +1622,11 @@ class PLOT_multi_year_drought_vegetation():
         df_group=T.df_groupby(df,'pix')
         for pix in df_group:
             df_pix=df_group[pix]
-            val_list_during_drought=df_pix['NDVI_total_drought'].tolist()
-            val_list_post1=df_pix['NDVI_post1_total'].tolist()
-            val_list_post2=df_pix['NDVI_post2_total'].tolist()
-            val_list_post3=df_pix['NDVI_post3_total'].tolist()
-            val_list_post4=df_pix['NDVI_post4_total'].tolist()
+            val_list_during_drought=df_pix['NDVI_rt'].tolist()
+            val_list_post1=df_pix['NDVI_post1_rs'].tolist()
+            val_list_post2=df_pix['NDVI_post2_rs'].tolist()
+            val_list_post3=df_pix['NDVI_post3_rs'].tolist()
+            val_list_post4=df_pix['NDVI_post4_rs'].tolist()
 
             val_list_during_drought_mean=np.nanmean(val_list_during_drought)
 
@@ -1683,23 +1653,23 @@ class PLOT_multi_year_drought_vegetation():
         outdir = join(self.outdir, 'tiff','ALL')
         T.mk_dir(outdir)
 
-        outf = join(outdir, 'NDVI_post1_total.tif')
+        outf = join(outdir, 'NDVI_post1_rs.tif')
         DIC_and_TIF().arr_to_tif(array_post1, outf)
         print(outf)
 
-        outf = join(outdir, 'NDVI_post2_total.tif')
+        outf = join(outdir, 'NDVI_post2_rs.tif')
         DIC_and_TIF().arr_to_tif(array_post2, outf)
         print(outf)
 
-        outf = join(outdir, 'NDVI_post3_total.tif')
+        outf = join(outdir, 'NDVI_post3_rs.tif')
         DIC_and_TIF().arr_to_tif(array_post3, outf)
         print(outf)
 
-        outf = join(outdir, 'NDVI_post4_total.tif')
+        outf = join(outdir, 'NDVI_post4_rs.tif')
         DIC_and_TIF().arr_to_tif(array_post4, outf)
         print(outf)
 
-        outf = join(outdir, 'NDVI_drought_total.tif')
+        outf = join(outdir, 'NDVI_rt.tif')
         DIC_and_TIF().arr_to_tif(array_during_drought, outf)
         print(outf)
 
@@ -1735,6 +1705,210 @@ class PLOT_multi_year_drought_vegetation():
 
         DIC_and_TIF().arr_to_tif(array, outf)
 
+    def heatmap_post_drought(self):  ## plot trend as function of Aridity and precipitation trend
+        ## plot trends as function of inter precipitaiton CV and intra precipitation CV
+        dff = rf'F:\Hotdrought_Resilience\results\analysis_multi_year_drought\Dataframe\\multiyear_droughts.df'
+        df = T.load_df(dff)
+        df = self.df_clean(df)
+        # print(len(df))
+        df = df[df['Post4yr_mean_SPI'] > -1]
+        # df=df[df['duration']==3]
+        df = self.df_clean(df)
+        # print(len(df));exit()
+        df = df[df['Aridity'] <= 0.65]
+
+        # plt.show();exit()
+
+        T.print_head_n(df)
+        x_var = 'Drought_severity'
+        y_var = 'mean_temp'
+        z_var = 'NDVI_post2_rs'
+
+        plt.hist(df[x_var])
+        plt.show()
+        plt.hist(df[y_var])
+        plt.show()
+
+        bin_x = np.linspace(5, 10, 7, )
+
+        bin_y = np.linspace(-1,2, 7)
+        # percentile_list=np.linspace(0,100,7)
+        # bin_x=np.percentile(df[x_var],percentile_list)
+        # print(bin_x)
+        # bin_y=np.percentile(df[y_var],percentile_list)
+        plt.figure(figsize=(8, 8))
+
+        matrix_dict, x_ticks_list, y_ticks_list = self.df_bin_2d(df, val_col_name=z_var,
+                                                                 col_name_x=x_var,
+                                                                 col_name_y=y_var, bin_x=bin_x, bin_y=bin_y, round_x=4,
+                                                                 round_y=4)
+        # pprint(matrix_dict);exit()
+
+        my_cmap = T.cmap_blend(color_list=['#000000', 'r', 'b'])
+        my_cmap = 'Spectral'
+        self.plot_df_bin_2d_matrix(matrix_dict, 0, 1, x_ticks_list, y_ticks_list, cmap=my_cmap,
+                                   is_only_return_matrix=False)
+        plt.colorbar()
+        plt.xticks(rotation=45)
+        plt.tight_layout()
+        pprint(matrix_dict)
+        # plt.show()
+
+        matrix_dict_count, x_ticks_list, y_ticks_list = self.df_bin_2d_count(df, val_col_name=z_var,
+                                                                             col_name_x=x_var,
+                                                                             col_name_y=y_var, bin_x=bin_x, bin_y=bin_y)
+        pprint(matrix_dict_count)
+        scatter_size_dict = {
+            (1, 20): 5,
+            (20, 50): 20,
+            (50, 100): 50,
+            (100, 200): 75,
+            (200, 400): 100,
+            (400, 800): 200,
+            (800, np.inf): 250
+        }
+        matrix_dict_count_normalized = {}
+        # Normalize counts for circle size
+        for key in matrix_dict_count:
+            num = matrix_dict_count[key]
+            for key2 in scatter_size_dict:
+                if num >= key2[0] and num < key2[1]:
+                    matrix_dict_count_normalized[key] = scatter_size_dict[key2]
+                    break
+        pprint(matrix_dict_count_normalized)
+        reverse_x = list(range(len(bin_y) - 1))[::-1]
+        reverse_x_dict = {}
+        for i in range(len(bin_y) - 1):
+            reverse_x_dict[i] = reverse_x[i]
+        # print(reverse_x_dict);exit()
+        for x, y in matrix_dict_count_normalized:
+            plt.scatter(y, reverse_x_dict[x], s=matrix_dict_count_normalized[(x, y)], c='gray', edgecolors='none',
+                        alpha=.5)
+        for x, y in matrix_dict_count_normalized:
+            plt.scatter(y, reverse_x_dict[x], s=matrix_dict_count_normalized[(x, y)], c='none', edgecolors='gray',
+                        alpha=1)
+
+        plt.xlabel('Drought severity')
+        plt.ylabel('Temp zscore')
+
+        plt.show()
+        # plt.savefig(outf)
+        # plt.close()
+
+    def df_bin_2d(self, df, val_col_name, col_name_x, col_name_y, bin_x, bin_y, round_x=2, round_y=2):
+        df_group_y, _ = self.df_bin(df, col_name_y, bin_y)
+        matrix_dict = {}
+        y_ticks_list = []
+        x_ticks_dict = {}
+        flag1 = 0
+        for name_y, df_group_y_i in df_group_y:
+            matrix_i = []
+            y_ticks = (name_y[0].left + name_y[0].right) / 2
+            y_ticks = np.round(y_ticks, round_y)
+            y_ticks_list.append(y_ticks)
+            df_group_x, _ = self.df_bin(df_group_y_i, col_name_x, bin_x)
+            flag2 = 0
+            for name_x, df_group_x_i in df_group_x:
+                vals = df_group_x_i[val_col_name].tolist()
+                # print(len(df_group_x_i));exit()
+
+                ## calculate ration and vals<1
+                vals = [i for i in vals if i < 1]
+                # print(vals);exit()
+
+                rt_mean = len(vals) / len(df) * 100
+                matrix_i.append(rt_mean)
+                x_ticks = (name_x[0].left + name_x[0].right) / 2
+                x_ticks = np.round(x_ticks, round_x)
+                x_ticks_dict[x_ticks] = 0
+                key = (flag1, flag2)
+                matrix_dict[key] = rt_mean
+                flag2 += 1
+            flag1 += 1
+        x_ticks_list = list(x_ticks_dict.keys())
+        x_ticks_list.sort()
+        return matrix_dict, x_ticks_list, y_ticks_list
+
+    def df_bin_2d_count(self, df, val_col_name, col_name_x, col_name_y, bin_x, bin_y, round_x=2, round_y=2):
+        df_group_y, _ = self.df_bin(df, col_name_y, bin_y)
+        matrix_dict = {}
+        y_ticks_list = []
+        x_ticks_dict = {}
+        flag1 = 0
+        for name_y, df_group_y_i in df_group_y:
+            matrix_i = []
+            y_ticks = (name_y[0].left + name_y[0].right) / 2
+            y_ticks = np.round(y_ticks, round_y)
+            y_ticks_list.append(y_ticks)
+            df_group_x, _ = self.df_bin(df_group_y_i, col_name_x, bin_x)
+            flag2 = 0
+            for name_x, df_group_x_i in df_group_x:
+                vals = df_group_x_i[val_col_name].tolist()
+                rt_mean = len(vals)
+                matrix_i.append(rt_mean)
+                x_ticks = (name_x[0].left + name_x[0].right) / 2
+                x_ticks = np.round(x_ticks, round_x)
+                x_ticks_dict[x_ticks] = 0
+                key = (flag1, flag2)
+                matrix_dict[key] = rt_mean
+                flag2 += 1
+            flag1 += 1
+        x_ticks_list = list(x_ticks_dict.keys())
+        x_ticks_list.sort()
+        return matrix_dict, x_ticks_list, y_ticks_list
+
+    def df_bin(self, df, col, bins):
+        df_copy = df.copy()
+        df_copy[f'{col}_bins'] = pd.cut(df[col], bins=bins)
+        df_group = df_copy.groupby([f'{col}_bins'], observed=True)
+        bins_name = df_group.groups.keys()
+        bins_name_list = list(bins_name)
+        bins_list_str = [str(i) for i in bins_name_list]
+        # for name,df_group_i in df_group:
+        #     vals = df_group_i[col].tolist()
+        #     mean = np.nanmean(vals)
+        #     err,_,_ = self.uncertainty_err(SM)
+        #     # x_list.append(name)
+        #     y_list.append(mean)
+        #     err_list.append(err)
+        return df_group, bins_list_str
+
+    def plot_df_bin_2d_matrix(self, matrix_dict, vmin, vmax, x_ticks_list, y_ticks_list, cmap='RdBu',
+                              is_only_return_matrix=False):
+        print(x_ticks_list)
+        keys = list(matrix_dict.keys())
+        r_list = []
+        c_list = []
+        for r, c in keys:
+            r_list.append(r)
+            c_list.append(c)
+        r_list = set(r_list)
+        c_list = set(c_list)
+
+        row = len(r_list)
+        col = len(c_list)
+        spatial = []
+        for r in range(row):
+            temp = []
+            for c in range(col):
+                key = (r, c)
+                if key in matrix_dict:
+                    val_pix = matrix_dict[key]
+                    temp.append(val_pix)
+                else:
+                    temp.append(np.nan)
+            spatial.append(temp)
+
+        matrix = np.array(spatial, dtype=float)
+        matrix = matrix[::-1]
+        if is_only_return_matrix:
+            return matrix
+        plt.imshow(matrix, cmap=cmap, vmin=vmin, vmax=vmax)
+        plt.xticks(range(len(c_list)), x_ticks_list)
+        plt.yticks(range(len(r_list)), y_ticks_list[::-1])
+        # plt.colorbar()
+        # plt.show()
+
     def plot_hot_minus_normal_during_drought_NDVI(self):
         fdir=join(self.outdir, 'tiff','normal_drought')
         sdir=join(self.outdir, 'tiff','hot_drought')
@@ -1764,8 +1938,8 @@ class PLOT_multi_year_drought_vegetation():
 
 def main():
     # Pick_drought_events_year().run()
-    Pick_multi_year_drought_events_year().run()
-    Dataframe().run()
+    # Pick_multi_year_drought_events_year().run()
+    # Dataframe().run()
     PLOT_multi_year_drought_vegetation().run()
     # PLOT_multi_year_drought_characteristic().run()
     # check_Data().run()
