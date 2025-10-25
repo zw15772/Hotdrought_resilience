@@ -19,6 +19,46 @@ mpl.use('TkAgg')
 
 result_root_this_script = join(results_root, 'analysis_repeat_drought')
 
+class Download_TerraClimate():
+    def __init__(self):
+        self.datadir = r'F:\Hotdrought_Resilience\data\terraclimate\\'
+
+    def download_all(self):
+        param_list = []
+        product_list = ['srad','pdsi','vpd','ppt','tmax','tmin']
+        # product_list = ['aet']
+        # product_list = ['vpd']
+        # product_list = ['srad']
+        for product in product_list:
+            for y in range(1982, 2021):
+                param_list.append([product, str(y)])
+                params = [product, str(y)]
+                # self.download(params)
+        MULTIPROCESS(self.download, param_list).run(process=8, process_or_thread='t')
+
+    def download(self, params):
+        product, y = params
+        outdir = join(self.datadir, product, 'nc')
+        T.mk_dir(outdir, force=True)
+        url = 'https://climate.northwestknowledge.net/TERRACLIMATE-DATA/TerraClimate_{}_{}.nc'.format(product, y)
+        print(url)
+        while 1:
+            try:
+                outf = join(outdir, '{}_{}.nc'.format(product, y))
+                if os.path.isfile(outf):
+                    return None
+                req = requests.request('GET', url)
+                content = req.content
+                fw = open(outf, 'wb')
+                fw.write(content)
+                return None
+            except Exception as e:
+                print(url, 'error sleep 5s')
+                time.sleep(5)
+
+    pass
+
+
 class Pick_drought_events_year:
 
     def __init__(self):
@@ -1711,27 +1751,28 @@ class PLOT_multi_year_drought_vegetation():
         df = T.load_df(dff)
         df = self.df_clean(df)
         # print(len(df))
-        df = df[df['Post4yr_mean_SPI'] > -1]
+        df = df[df['Post4yr_mean_SPI'] > -1.5]
         # df=df[df['duration']==3]
         df = self.df_clean(df)
         # print(len(df));exit()
-        df = df[df['Aridity'] <= 0.65]
+        df = df[df['Aridity'] >0.65]
 
         # plt.show();exit()
 
         T.print_head_n(df)
         x_var = 'Drought_severity'
         y_var = 'mean_temp'
-        z_var = 'NDVI_post2_rs'
+        z_var = 'NDVI_post4_rs'
+        # z_var = 'NDVI_rt'
 
         plt.hist(df[x_var])
         plt.show()
         plt.hist(df[y_var])
         plt.show()
 
-        bin_x = np.linspace(5, 10, 7, )
+        bin_x = np.linspace(5, 8, 11, )
 
-        bin_y = np.linspace(-1,2, 7)
+        bin_y = np.linspace(-1.5,1.5, 11)
         # percentile_list=np.linspace(0,100,7)
         # bin_x=np.percentile(df[x_var],percentile_list)
         # print(bin_x)
@@ -1745,11 +1786,16 @@ class PLOT_multi_year_drought_vegetation():
         # pprint(matrix_dict);exit()
 
         my_cmap = T.cmap_blend(color_list=['#000000', 'r', 'b'])
-        my_cmap = 'Spectral'
-        self.plot_df_bin_2d_matrix(matrix_dict, 0, 1, x_ticks_list, y_ticks_list, cmap=my_cmap,
+        my_cmap = 'RdBu'
+        self.plot_df_bin_2d_matrix(matrix_dict, 0.99, 1.01, x_ticks_list, y_ticks_list, cmap=my_cmap,
                                    is_only_return_matrix=False)
         plt.colorbar()
-        plt.xticks(rotation=45)
+        ## colorbar ticks and font size
+        cbar = plt.colorbar()
+        cbar.ax.tick_params(labelsize=12)
+
+        plt.xticks(rotation=45,fontsize=12)
+        plt.yticks(fontsize=12)
         plt.tight_layout()
         pprint(matrix_dict)
         # plt.show()
@@ -1788,8 +1834,9 @@ class PLOT_multi_year_drought_vegetation():
             plt.scatter(y, reverse_x_dict[x], s=matrix_dict_count_normalized[(x, y)], c='none', edgecolors='gray',
                         alpha=1)
 
-        plt.xlabel('Drought severity')
-        plt.ylabel('Temp zscore')
+        plt.xlabel('Drought severity', fontsize=12)
+        plt.ylabel('Temp zscore', fontsize=12)
+        plt.tight_layout()
 
         plt.show()
         # plt.savefig(outf)
@@ -1813,10 +1860,12 @@ class PLOT_multi_year_drought_vegetation():
                 # print(len(df_group_x_i));exit()
 
                 ## calculate ration and vals<1
-                vals = [i for i in vals if i < 1]
-                # print(vals);exit()
 
-                rt_mean = len(vals) / len(df) * 100
+                # vals = [i for i in vals if i < 1]
+                # print(len(vals))
+                rt_mean=np.nanmean(vals)
+
+                # rt_mean = len(vals) /len(df_group_x_i) * 100
                 matrix_i.append(rt_mean)
                 x_ticks = (name_x[0].left + name_x[0].right) / 2
                 x_ticks = np.round(x_ticks, round_x)
