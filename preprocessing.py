@@ -12,6 +12,7 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=FutureWarning)
 import os
 from tqdm import tqdm
+import xarray
 from os.path import join
 from scipy.stats import gamma, norm
 # import climate_indices
@@ -19,6 +20,213 @@ from scipy.stats import gamma, norm
 # from climate_indices import indices
 import matplotlib
 matplotlib.use('TkAgg')
+
+class Download_TerraClimate():
+    def __init__(self):
+        self.datadir = r'F:\Hotdrought_Resilience\data\\'
+
+
+    def run (self):
+        # self.download_all()
+        self.nc_to_tif_time_series_fast()
+
+    def download_all(self):
+        param_list = []
+        # product_list = ['srad','pdsi','vpd','ppt','tmax','tmin']
+        # product_list = ['aet']
+        # product_list = ['vpd']
+        product_list = ['tmax']
+        for product in product_list:
+            for y in range(1982, 2021):
+                param_list.append([product, str(y)])
+                params = [product, str(y)]
+                # self.download(params)
+        MULTIPROCESS(self.download, param_list).run(process=8, process_or_thread='t')
+
+    def download(self, params):
+        product, y = params
+        outdir = join(self.datadir, product, 'nc')
+        T.mk_dir(outdir, force=True)
+        url = 'https://climate.northwestknowledge.net/TERRACLIMATE-DATA/TerraClimate_{}_{}.nc'.format(product, y)
+        print(url)
+        while 1:
+            try:
+                outf = join(outdir, '{}_{}.nc'.format(product, y))
+                if os.path.isfile(outf):
+                    return None
+                req = requests.request('GET', url)
+                content = req.content
+                fw = open(outf, 'wb')
+                fw.write(content)
+                return None
+            except Exception as e:
+                print(url, 'error sleep 5s')
+                time.sleep(5)
+
+    def nc_to_tif_time_series_fast(self):
+
+        fdir = join(self.datadir, 'GLEAM','SMs','nc')
+        outdir = join(self.datadir, 'GLEAM', 'SMs','tif')
+        Tools().mk_dir(outdir, force=True)
+        for f in tqdm(os.listdir(fdir)):
+
+
+            outdir_name = f.split('.')[0]
+            # print(outdir_name)
+
+            yearlist = list(range(1982, 2021))
+            fpath = join(fdir, f)
+            nc_in = xarray.open_dataset(fpath)
+            print(nc_in)
+            time_bnds = nc_in['time']
+            for t in range(len(time_bnds)):
+                date = time_bnds[t]['time']
+                date = pd.to_datetime(date.values)
+                date_str = date.strftime('%Y%m%d')
+                date_str = date_str.split()[0]
+                outf = join(outdir, f'{date_str}.tif')
+                array = nc_in['SMs'][t]
+
+                array = np.array(array)
+                # array[array < 0] = np.nan
+
+                longitude_start, latitude_start, pixelWidth, pixelHeight = -180, 90, 0.1, -0.1
+                ToRaster().array2raster(outf, longitude_start, latitude_start,
+                                        pixelWidth, pixelHeight, array, ndv=-999999)
+                # exit()
+
+            # nc_to_tif_template(fdir+f,var_name='lai',outdir=outdir,yearlist=yearlist)
+            try:
+                self.nc_to_tif_template(fdir + f, var_name='SMs', outdir=outdir, yearlist=yearlist)
+            except Exception as e:
+                print(e)
+                continue
+    def nc_to_tif_template(self, fname, var_name, outdir, yearlist):
+        try:
+            ncin = Dataset(fname, 'r')
+            print(ncin.variables.keys())
+            # exit()
+            time = ncin.variables['time'][:]
+
+        except:
+            raise UserWarning('File not supported: ' + fname)
+        # lon,lat = np.nan,np.nan
+        try:
+            lat = ncin.variables['lat'][:]
+            lon = ncin.variables['lon'][:]
+        except:
+            try:
+                lat = ncin.variables['latitude'][:]
+                lon = ncin.variables['longitude'][:]
+            except:
+                try:
+                    lat = ncin.variables['lat_FULL'][:]
+                    lon = ncin.variables['lon_FULL'][:]
+                except:
+                    raise UserWarning('lat or lon not found')
+        shape = np.shape(lat)
+        try:
+            time = ncin.variables['time_counter'][:]
+            basetime_str = ncin.variables['time_counter'].units
+        except:
+            time = ncin.variables['time'][:]
+            basetime_str = ncin.variables['time'].units
+
+        basetime_unit = basetime_str.split('since')[0]
+        basetime_unit = basetime_unit.strip()
+        print(basetime_unit)
+        print(basetime_str)
+        if basetime_unit == 'days':
+            timedelta_unit = 'days'
+        elif basetime_unit == 'years':
+            timedelta_unit = 'years'
+        elif basetime_unit == 'month':
+            timedelta_unit = 'month'
+        elif basetime_unit == 'months':
+            timedelta_unit = 'month'
+        elif basetime_unit == 'seconds':
+            timedelta_unit = 'seconds'
+        elif basetime_unit == 'hours':
+            timedelta_unit = 'hours'
+        else:
+            raise Exception('basetime unit not supported')
+        basetime = basetime_str.strip(f'{timedelta_unit} since ')
+        try:
+            basetime = datetime.datetime.strptime(basetime, '%Y-%m-%d')
+        except:
+            try:
+                basetime = datetime.datetime.strptime(basetime, '%Y-%m-%d %H:%M:%S')
+            except:
+                try:
+                    basetime = datetime.datetime.strptime(basetime, '%Y-%m-%d %H:%M:%S.%f')
+                except:
+                    try:
+                        basetime = datetime.datetime.strptime(basetime, '%Y-%m-%d %H:%M')
+                    except:
+                        try:
+                            basetime = datetime.datetime.strptime(basetime, '%Y-%m')
+                        except:
+                            try:
+                                basetime_ = basetime.split('T')[0]
+                                # print(basetime_)
+                                basetime = datetime.datetime.strptime(basetime_, '%Y-%m-%d')
+                                # print(basetime)
+                            except:
+
+                                raise UserWarning('basetime format not supported')
+        data = ncin.variables[var_name]
+        if len(shape) == 2:
+            xx, yy = lon, lat
+        else:
+            xx, yy = np.meshgrid(lon, lat)
+        for time_i in tqdm(range(len(time))):
+            if basetime_unit == 'days':
+                date = basetime + datetime.timedelta(days=int(time[time_i]))
+            elif basetime_unit == 'years':
+                date1 = basetime.strftime('%Y-%m-%d')
+                base_year = basetime.year
+                date2 = f'{int(base_year + time[time_i])}-01-01'
+                delta_days = Tools().count_days_of_two_dates(date1, date2)
+                date = basetime + datetime.timedelta(days=delta_days)
+            elif basetime_unit == 'month' or basetime_unit == 'months':
+                date1 = basetime.strftime('%Y-%m-%d')
+                base_year = basetime.year
+                base_month = basetime.month
+                date2 = f'{int(base_year + time[time_i] // 12)}-{int(base_month + time[time_i] % 12)}-01'
+                delta_days = Tools().count_days_of_two_dates(date1, date2)
+                date = basetime + datetime.timedelta(days=delta_days)
+            elif basetime_unit == 'seconds':
+                date = basetime + datetime.timedelta(seconds=int(time[time_i]))
+            elif basetime_unit == 'hours':
+                date = basetime + datetime.timedelta(hours=int(time[time_i]))
+            else:
+                raise Exception('basetime unit not supported')
+            time_str = time[time_i]
+            mon = date.month
+            year = date.year
+            if year not in yearlist:
+                continue
+            day = date.day
+            outf_name = f'{year}{mon:02d}{day:02d}.tif'
+            outpath = join(outdir, outf_name)
+            if isfile(outpath):
+                continue
+            arr = data[time_i]
+            arr = np.array(arr)
+            lon_list = []
+            lat_list = []
+            value_list = []
+            for i in range(len(arr)):
+                for j in range(len(arr[i])):
+                    lon_i = xx[i][j]
+                    if lon_i > 180:
+                        lon_i -= 360
+                    lat_i = yy[i][j]
+                    value_i = arr[i][j]
+                    lon_list.append(lon_i)
+                    lat_list.append(lat_i)
+                    value_list.append(value_i)
+            DIC_and_TIF().lon_lat_val_to_tif(lon_list, lat_list, value_list, outpath)
 
 class GIMMS_NDVI:
     def __init__(self):
@@ -1318,8 +1526,9 @@ class extract_growing_season_not_used:  ## not use in this project
 
 
 def main():
+    Download_TerraClimate().run()
 
-    GIMMS_NDVI().run()
+    # GIMMS_NDVI().run()
     # SPI().run()
     # temperature().run()
     # Calculating_SPI().run()

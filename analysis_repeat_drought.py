@@ -17,11 +17,14 @@ mpl.use('TkAgg')
 # results_root = join(this_root,'results')
 # temp_root = join(this_root,'temp')
 
-result_root_this_script = join(results_root, 'analysis_repeat_drought')
+result_root_this_script = join(results_root, 'analysis_multi_year_drought')
 
 class Download_TerraClimate():
     def __init__(self):
-        self.datadir = r'F:\Hotdrought_Resilience\data\terraclimate\\'
+        self.datadir = 'F:/Hotdrought_Resilience/data/terraclimate'
+
+    def run (self):
+        self.download_all()
 
     def download_all(self):
         param_list = []
@@ -1986,10 +1989,10 @@ class PLOT_multi_year_drought_vegetation():
 
 
 def main():
-    # Pick_drought_events_year().run()
+    Download_TerraClimate().run()
     # Pick_multi_year_drought_events_year().run()
     # Dataframe().run()
-    PLOT_multi_year_drought_vegetation().run()
+    # PLOT_multi_year_drought_vegetation().run()
     # PLOT_multi_year_drought_characteristic().run()
     # check_Data().run()
     pass
