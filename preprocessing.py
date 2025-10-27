@@ -28,7 +28,12 @@ class Download_TerraClimate():
 
     def run (self):
         # self.download_all()
-        self.nc_to_tif_time_series_fast()
+        # self.nc_to_tif_time_series_fast()
+        # self.resample()
+        # self.average()
+
+        self.per_pix()
+
 
     def download_all(self):
         param_list = []
@@ -228,20 +233,57 @@ class Download_TerraClimate():
                     value_list.append(value_i)
             DIC_and_TIF().lon_lat_val_to_tif(lon_list, lat_list, value_list, outpath)
 
+    def resample(self):
+        fdir = join(self.datadir, rf'GPP_CEDAR\LT_CFE-Hybrid_NT\TIFF\\')
+        outdir = join(self.datadir, rf'GPP_CEDAR\LT_CFE-Hybrid_NT\\resample_01')
+        T.mk_dir(outdir, True)
+        for f in tqdm(T.listdir(fdir)):
+            if not f.endswith('.tif'):
+                continue
+            fpath = join(fdir, f)
+            outpath = join(outdir, f)
+            ToRaster().resample_reproj(fpath, outpath, 0.1)
+
+    def average(self):
+        fdir_tmax = join(self.datadir, rf'terraclimate\tmax\resample_01\\')
+        fdir_min = join(self.datadir, rf'terraclimate\tmin\resample_01\\')
+        outdir = join(self.datadir, rf'terraclimate\tmax_min\average\\')
+        T.mk_dir(outdir, True)
+        for f in tqdm(T.listdir(fdir_tmax)):
+            if not f.endswith('.tif'):
+                continue
+            fpath_tmax = join(fdir_tmax, f)
+            print(fpath_tmax)
+            fpath_min = join(fdir_min, f)
+            # print(fpath_min);exit()
+            outpath = join(outdir, f)
+            array_tmax, originX, originY, pixelWidth, pixelHeight = ToRaster().raster2array(fpath_tmax)
+            array_min, originX, originY, pixelWidth, pixelHeight = ToRaster().raster2array(fpath_min)
+            array = (array_tmax + array_min) / 2
+            DIC_and_TIF(pixelsize=0.1).arr_to_tif(array, outpath)
+
+
+    def per_pix(self):
+        fdir = join(self.datadir, rf'terraclimate\tmax_min\\average\\')
+        outdir =  join(self.datadir,rf'terraclimate\tmax_min\\per_pix')
+        T.mk_dir(outdir,force=True)
+        Pre_Process().data_transform(fdir, outdir)
+
+
 class GIMMS_NDVI:
     def __init__(self):
-        self.datadir = join(data_root, 'NDVI4g')
+        self.datadir = r'F:\Hotdrought_Resilience\data\\'
         pass
     def run(self):
         # self.resample()
-        # self.monthly_compose()
+        self.monthly_compose_LAI4g()
         # self.scaling()
         # self.per_pix()
         # self.check_data()
         # self.extract_all_gs_NDVI_based_temp()
         # self.annual_growth_season_NDVI()
         # self.annual_growth_season_NDVI_anomaly()
-        self.annual_growth_season_NDVI_detrend()
+        # self.annual_growth_season_NDVI_detrend()
 
 
         pass
@@ -257,16 +299,126 @@ class GIMMS_NDVI:
             outpath = join(outdir, f)
             ToRaster().resample_reproj(fpath, outpath, 0.5)
 
-    def monthly_compose(self):
-        fdir = join(self.datadir,'bi_weekly_05')
-        outdir = join(self.datadir,'monthly_tif')
+    def monthly_compose_LAI4g(self):
+        fdir = join(self.datadir,'LAI4g','scaling_tif')
+        outdir = join(self.datadir,'LAI4g','monthly_tif')
         T.mk_dir(outdir)
-        Pre_Process().monthly_compose(fdir,outdir,method='max')
+        self.monthly_compose(fdir,outdir,method='max')
         pass
+
+    def monthly_compose(self, indir, outdir, date_fmt='yyyymmdd', method='mean'):
+        '''
+        :param method: "mean", "max" or "sum"
+        :param date_fmt: 'yyyymmdd' or 'doy'
+        :return:
+        '''
+        Tools().mkdir(outdir)
+        year_list = []
+        month_list = []
+        for f in Tools().listdir(indir):
+            y, m, d = self.get_year_month_day(f, date_fmt=date_fmt)
+            year_list.append(y)
+            month_list.append(m)
+        year_list = Tools().drop_repeat_val_from_list(year_list)
+        month_list = Tools().drop_repeat_val_from_list(month_list)
+        compose_path_dic = {}
+        for y in year_list:
+            for m in month_list:
+                date = (y, m)
+                compose_path_dic[date] = []
+        for f in Tools().listdir(indir):
+            y, m, d = self.get_year_month_day(f, date_fmt=date_fmt)
+            date = (y, m)
+            compose_path_dic[date].append(join(indir, f))
+        for date in compose_path_dic:
+            flist = compose_path_dic[date]
+            y, m = date
+            print(f'{y}{m:02d}')
+            outfname = f'{y}{m:02d}.tif'
+            outpath = join(outdir, outfname)
+            if os.path.isfile(outpath):
+                continue
+            self.compose_tif_list(flist, outpath, method=method)
+
+    def get_year_month_day(self, fname, date_fmt='yyyymmdd'):
+        try:
+            if date_fmt == 'yyyymmdd':
+                fname_split = fname.split('.')
+                if not len(fname_split) == 2:
+                    raise
+                date = fname_split[0]
+                if not len(date) == 8:
+                    raise
+                date_int = int(date)
+                y = date[:4]
+                m = date[4:6]
+                d = date[6:]
+                y = int(y)
+                m = int(m)
+                d = int(d)
+                date_obj = datetime.datetime(y, m, d)  # check date availability
+                return y, m, d
+            elif date_fmt == 'doy':
+                fname_split = fname.split('.')
+                if not len(fname_split) == 2:
+                    raise
+                date = fname_split[0]
+                if not len(date) == 7:
+                    raise
+                y = date[:4]
+                doy = date[4:]
+                doy = int(doy)
+                date_base = datetime.datetime(int(y), 1, 1)
+                time_delta = datetime.timedelta(doy - 1)
+                date_obj = date_base + time_delta
+                y = date_obj.year
+                m = date_obj.month
+                d = date_obj.day
+                return y, m, d
+        except:
+            if date_fmt == 'yyyymmdd':
+                raise UserWarning(
+                    f'------\nfname must be yyyymmdd.tif e.g. 19820101.tif\nplease check your fname "{fname}"')
+            elif date_fmt == 'doy':
+                raise UserWarning(
+                    f'------\nfname must be yyyyddd.tif e.g. 1982001.tif\nplease check your fname "{fname}"')
+
+    def compose_tif_list(self, flist, outf, less_than=-9999, method='mean'):
+        # less_than -9999, mask as np.nan
+        if len(flist) == 0:
+            return
+        tif_template = flist[0]
+        void_dic = DIC_and_TIF(tif_template=tif_template).void_spatial_dic()
+        for f in tqdm(flist, desc='transforming...'):
+            if not f.endswith('.tif'):
+                continue
+            array, originX, originY, pixelWidth, pixelHeight = ToRaster().raster2array(f)
+            for r in range(len(array)):
+                for c in range(len(array[0])):
+                    pix = (r, c)
+                    val = array[r][c]
+                    void_dic[pix].append(val)
+        spatial_dic = {}
+        for pix in tqdm(void_dic, desc='calculating mean...'):
+            vals = void_dic[pix]
+            vals = np.array(vals, dtype=float)
+            vals[vals < less_than] = np.nan
+            if method == 'mean':
+                compose_val = np.nanmean(vals)
+            elif method == 'max':
+                compose_val = np.nanmax(vals)
+            elif method == 'sum':
+                compose_val = np.nansum(vals)
+            else:
+                raise UserWarning(f'{method} is invalid, should be "mean" "max" or "sum"')
+            spatial_dic[pix] = compose_val
+        DIC_and_TIF(tif_template=tif_template).pix_dic_to_tif(spatial_dic, outf)
+
+
     def scaling(self):
         ## data*0.0001 and
-        fdir=join(self.datadir,'monthly_tif')
-        outdir=join(self.datadir,'scaling_tif')
+        fdir=r'F:\Hotdrought_Resilience\data\LAI4g\resample_01\\'
+        outdir=r'F:\Hotdrought_Resilience\data\LAI4g\scaling_tif\\'
         T.mk_dir(outdir)
         for f in tqdm(T.listdir(fdir)):
             if not f.endswith('.tif'):
@@ -274,16 +426,18 @@ class GIMMS_NDVI:
             fpath = join(fdir, f)
             outpath = join(outdir, f)
             array, originX, originY, pixelWidth, pixelHeight = ToRaster().raster2array(fpath)
-            array = array*0.0001
+
+            # array = array*0.0001   NDVI
+            array = array * 0.01
             array[array<0] = np.nan
-            array[array>1] = np.nan
+            array[array>7] = np.nan
             ToRaster().array2raster(outpath, originX, originY, pixelWidth, pixelHeight, array)
 
         pass
 
     def per_pix(self):
-        fdir = join(self.datadir,'scaling_tif')
-        outdir = join(self.datadir,'per_pix')
+        fdir = join(self.datadir,'LAI4g','monthly_tif')
+        outdir = join(self.datadir,'LAI4g','per_pix')
         T.mk_dir(outdir)
         Pre_Process().data_transform(fdir,outdir)
 
