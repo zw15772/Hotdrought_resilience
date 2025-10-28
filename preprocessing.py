@@ -1655,24 +1655,25 @@ class GPP:
         # plt.show()
 class pick_Drought:
     def __init__(self):
-        self.datadir = join(data_root,'terraclimate','PDSI',)
+        self.datadir = join(data_root,)
         self.outdir = join(data_root,'terraclimate','PDSI','pick_drought\\')
         T.mk_dir(self.outdir, force=True)
         pass
     def run(self):
         self.pick_multiyear_drought_events_year()
+        self.generate_expected_GPP()
         pass
 
     def pick_multiyear_drought_events_year(self):
         # 载入数据
-        PDSI_dir = join(self.datadir, 'annual_growth_season_10degree')
+        PDSI_dir = join(self.datadir, 'terraclimate', 'PDSI', 'annual_growth_season_10degree')
         PDSI_dict = T.load_npy_dir(PDSI_dir)
         years = np.arange(1982, 2021)
 
         df_droughts = self.detect_multiyear_droughts(
             PDSI_dict=PDSI_dict,
             years=years,
-            drought_threshold=-4,
+            drought_threshold=-3,
             min_duration=2,
 
         )
@@ -1751,7 +1752,7 @@ class pick_Drought:
                 # === Step 6: 干旱严重度 ===
 
                 sub_spi = spi_annual[s:e + 1]
-                print(sub_spi)
+                # print(sub_spi)
                 if len(sub_spi) > 0:
                     severity = np.nansum(np.abs(sub_spi))
                 else:
@@ -1767,17 +1768,62 @@ class pick_Drought:
                 record = {
                     "pix": pix,
                     "drought_years": drought_years,
-                    "SPI_min": float(min_val),
-                    "SPI_min_year": int(min_year),
+                    "PDSI_min": float(min_val),
+                    "PDSI_min_year": int(min_year),
                     "duration": len(drought_years),
                     "Drought_severity": float(severity),
-                    "Post4yr_mean_SPI": float(post_mean_spi),
+                    "Post4yr_mean_PDSI": float(post_mean_spi),
                 }
                 result_records.append(record)
-
+            pprint(result_records)
 
 
         return result_records
+
+
+    def generate_expected_GPP(self):  #### here generate expected GPP
+        GPP_dir=join(self.datadir,rf'GPP_CEDAR\LT_CFE-Hybrid_NT\annual_growth_season_10degree_detrend')
+        pick_drought_fdir=join(self.datadir,rf'terraclimate\PDSI\pick_drought\multiyear_drought')
+        dic_GPP=T.load_npy_dir(GPP_dir)
+        dic_drought=T.load_npy(pick_drought_fdir)
+        out_dic= {}
+        for pix, GPP in tqdm(dic_GPP.items(), desc='Generating expected GPP'):
+            if pix not in dic_drought:
+                continue
+
+            drought_years = dic_drought[pix].get('drought_years', [])
+            if len(GPP) == 0 or np.all(np.isnan(GPP)):
+                continue
+
+            years = np.arange(1982, 1982 + len(GPP))
+
+            # === Step 1: 找出非干旱年份 ===
+            mask_non_drought = np.array([y not in drought_years for y in years])
+
+            non_drought_GPP = np.array(GPP)[mask_non_drought]
+
+            mean_non_drought = np.nanmean(non_drought_GPP)
+
+            # === Step 2: 用平均值替代干旱年 ===
+            GPP_expected = GPP.copy()
+            for i, y in enumerate(years):
+                if y in drought_years:
+                    GPP_expected[i] = mean_non_drought
+
+            out_dic[pix] = GPP_expected
+
+            # === Step 3: 保存结果 ===
+        outdir=join(self.datadir,rf'GPP_CEDAR\expected_GPP')
+        T.mk_dir(outdir,force=True)
+        outf = join(outdir, 'expected_GPP.npy')
+        np.save(outf, out_dic)
+
+
+
+
+
+
+
 
 
 
