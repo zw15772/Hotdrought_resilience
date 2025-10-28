@@ -276,9 +276,9 @@ class GIMMS_NDVI:
         pass
     def run(self):
         # self.resample()
-        self.monthly_compose_LAI4g()
+        # self.monthly_compose_LAI4g()
         # self.scaling()
-        # self.per_pix()
+        self.per_pix()
         # self.check_data()
         # self.extract_all_gs_NDVI_based_temp()
         # self.annual_growth_season_NDVI()
@@ -778,6 +778,198 @@ class GIMMS_NDVI:
         # plt.colorbar(label="Month Index (11=Dec)")
         # plt.show()
 
+class GPP:
+    def __init__(self):
+        pass
+
+
+
+    def extract_all_gs_NDVI_based_temp(self):
+        """
+        批处理: 提取所有像素的 LAI 生长季 (多年序列)
+        输出:
+            result_dic : {pix: ndarray 或 None}, shape = (n_years, season_len)
+        """
+        LAI_dic_fdir =join(data_root,'NDVI4g','per_pix')
+        growing_season_fdir = join(data_root, 'CRU_temp', 'extract_SOS_EOS_index', 'extract_growing_season_10degree')
+        outdir = join(data_root,'NDVI4g','extract_growing_season','extract_growing_season_10degree')
+        T.mk_dir(outdir, force=True)
+        start_dic = {}
+        end_dic = {}
+        len_dic = {}
+
+        for f in T.listdir(LAI_dic_fdir):
+
+            result_dic = {}
+            LAI_dic = T.load_npy(join(LAI_dic_fdir, f))
+            gs_dic = T.load_npy(join(growing_season_fdir, f))
+
+            for pix in tqdm(LAI_dic, desc=f"Extracting GS LAI from {f}"):
+                LAI_val = np.array(LAI_dic[pix], dtype=float)
+
+                if pix not in gs_dic:
+                    continue
+
+                start = gs_dic[pix]["start"]
+                end = gs_dic[pix]["end"]
+                start_dic[pix] = start
+                end_dic[pix] = end
+
+                if start is None or end is None:
+                    continue
+
+                n_years = len(LAI_val) // 12
+                gs_vals = []
+                if n_years <38:
+                    print(n_years)
+                    continue
+
+
+                for y in range(n_years):
+                    year_vals = LAI_val[y * 12:(y + 1) * 12]
+                    if isinstance(year_vals, np.ndarray) and np.all(np.isnan(year_vals)):
+                        continue
+                    else:
+
+                        if start <= end:
+                            # 生长季在同一年内
+                            gs_vals.append(year_vals[start:end + 1])
+                        else:
+                            # 跨年 → 当年[start:12] + 下一年[:end+1]
+                            if y < n_years - 1:  # 不是最后一年
+                                next_year_vals = LAI_val[(y + 1) * 12:(y + 2) * 12]
+                                gs_vals.append(np.concatenate([year_vals[start:], next_year_vals[:end + 1]]))
+                            else:
+                                # 最后一年无法取下一年 → 丢弃 or 标记 None
+                                gs_vals.append(np.nan)
+
+                result_dic[pix] = np.array(gs_vals, dtype=object)
+                len_dic[pix] = len(gs_vals)
+
+            # 保存生长季 LAI
+            outf = join(outdir, f)
+            np.save(outf, result_dic)
+
+
+        # # 可选：保存 start/end 空间分布检查
+        # array_start = DIC_and_TIF(pixelsize=0.5).pix_dic_to_spatial_arr(start_dic)
+        # array_end = DIC_and_TIF(pixelsize=0.5).pix_dic_to_spatial_arr(end_dic)
+        # array_len = DIC_and_TIF(pixelsize=0.5).pix_dic_to_spatial_arr(len_dic)
+        #
+        # DIC_and_TIF(pixelsize=0.5).arr_to_tif(array_start, outdir + 'start.tif')
+        #
+        # DIC_and_TIF(pixelsize=0.5).arr_to_tif(array_len, outdir + 'len.tif')
+        #
+        # DIC_and_TIF(pixelsize=0.5).arr_to_tif(array_end, outdir + 'end.tif')
+        #
+        # plt.figure(figsize=(12, 5))
+        # plt.subplot(1, 2, 1)
+        #
+        # plt.imshow(array_start, cmap="jet")
+        # plt.colorbar(label="Month Index (0=Jan)")
+        #
+        # plt.subplot(1, 2, 2)
+        #
+        # plt.imshow(array_end, cmap="jet")
+        # plt.colorbar(label="Month Index (11=Dec)")
+        # plt.show()
+
+
+    def annual_growth_season_NDVI(self):
+        """
+        计算每个像素逐年的生长季 LAI 平均值
+        - 北半球: 保留22年 (2003–2024)
+        - 南半球: 如果是跨年生长季 → 只保留21年 (2004–2024)
+                  如果是全年生长季 → 保留22年
+        """
+        fdir = join(data_root,'NDVI4g','extract_growing_season','extract_growing_season_10degree')
+        outdir = join(data_root,'NDVI4g','annual_growing_season_NDVI')
+        T.mk_dir(outdir, force=True)
+        len_dic = {}
+
+        for f in tqdm(T.listdir(fdir)):
+            if not f.endswith('.npy'):
+                continue
+
+            dic = T.load_npy(join(fdir, f))
+            result_dic = {}
+
+            for pix in dic:
+                r, c = pix
+                lon,lat=DIC_and_TIF().pix_to_lon_lat(pix) # # print(lon,lat) #
+                # if not lon == 149.5:
+                #     continue #
+                # if not lat== -36.5: #
+                #     continue
+                gs_array = dic[pix]
+
+                # 若该像素为空或为 None
+                if gs_array is None:
+                    continue
+
+                # 若是列表或object数组（包含 array([...]) + np.nan）
+                if isinstance(gs_array, (list, np.ndarray)):
+                    # 转换为object数组（确保兼容np.nan）
+                    gs_array = np.array(gs_array, dtype=object)
+                    if len(gs_array)<38:
+                        continue
+
+
+
+                    if len(gs_array) == 0:
+                        continue
+
+                    # 检查最后一个是否是nan（南半球补齐）
+                    if isinstance(gs_array[-1], float) and np.isnan(gs_array[-1]):
+                        gs_array = gs_array[:-1]
+
+                    # 再次转换成2D数组（每年一个array）
+                    try:
+                        stacked = np.vstack(gs_array)
+                    except Exception as e:
+                        print(f"Warning: failed to stack pix {pix}, reason: {e}")
+                        result_dic[pix] = np.nan
+                        continue
+
+
+                    try:
+                        annual_mean = np.nanmean(stacked, axis=1)
+                    except ZeroDivisionError:
+                        print("All NaN at pix:", pix)
+                        continue
+
+                    lon, lat = DIC_and_TIF().pix_to_lon_lat(pix)
+
+
+                    if lat < 0:
+                        if len(annual_mean) == 38:
+                            annual_mean = np.append(annual_mean, np.nan)
+
+
+                    if lat >= 0 and len(annual_mean) != 39:
+                        continue
+
+                    # plt.plot(annual_mean)
+                    # print(annual_mean)
+                    # print(len(annual_mean))
+                    # plt.show()
+
+
+                    result_dic[pix] = annual_mean
+                    len_dic[pix] = len(annual_mean)
+
+
+
+            # 保存每个文件结果
+            outf = join(outdir, f)
+            np.save(outf, result_dic)
+        array_len = DIC_and_TIF(pixelsize=0.5).pix_dic_to_spatial_arr(len_dic)
+        outtif=join(outdir,'annual_growing_season_NDVI_len.tif')
+        DIC_and_TIF(pixelsize=0.5).arr_to_tif(array_len, outtif)
+        plt.imshow(array_len, cmap="jet")
+        plt.colorbar(label="Month Index (11=Dec)")
+        plt.show()
+
 
 class SPI:
     def __init__(self):
@@ -948,7 +1140,7 @@ class Calculating_SPI:
 
 class temperature:
     def __init__(self):
-        self.datadir = join(data_root,'CRU_temp',)
+        self.datadir = join(data_root,'terraclimate',)
         pass
     def run(self):
         # self.nc_to_tif()
@@ -958,7 +1150,9 @@ class temperature:
         # self.long_term_mean()
         # self.extract_SOS_EOS_index()
         # self.extract_all_gs_temp_based_temp()
+
         # self.annual_growth_season_temp()
+        # self.check_data()
         self.annual_growth_season_temp_detrend_zscore()
         pass
 
@@ -1048,9 +1242,9 @@ class temperature:
 
 
     def long_term_mean(self):
-        fdir=join(data_root,'CRU_temp','per_pix')
+        fdir=join(data_root,rf'terraclimate\tmax_min\per_pix',)
 
-        outdir=join(data_root,'CRU_temp','long_term_mean')
+        outdir=join(data_root,rf'terraclimate\tmax_min','long_term_mean')
         T.mk_dir(outdir,True)
 
         for f in T.listdir(fdir):
@@ -1082,10 +1276,10 @@ class temperature:
         支持跨年生长季（例如南半球 11 月 - 次年 3 月）
         """
 
-        fdir=join(data_root,'CRU_temp','long_term_mean')
+        fdir=join(data_root,rf'terraclimate\tmax_min\long_term_mean')
 
 
-        outdir=join(data_root,'CRU_temp','extract_SOS_EOS_index')
+        outdir=join(data_root,rf'terraclimate\tmax_min\\','extract_SOS_EOS_index')
         T.mk_dir(outdir, force=True)
 
         for f in T.listdir(fdir):
@@ -1096,7 +1290,7 @@ class temperature:
                 val = np.array(dic[pix], dtype=float)
 
                 # 找到温度 > 10°C 的月份索引
-                index = np.where(val > 5)[0]
+                index = np.where(val > 10)[0]
 
                 if len(index) == 0:
                     # 没有超过 10°C 的月份 → 无生长季
@@ -1156,11 +1350,11 @@ class temperature:
         输出:
             result_dic : {pix: ndarray 或 None}, shape = (n_years, season_len)
         """
-        LAI_dic_fdir = join(data_root, 'CRU_temp', 'per_pix')
-        growing_season_fdir = join(data_root, 'CRU_temp', 'extract_SOS_EOS_index', 'extract_growing_season_10degree')
-        outdir = join(data_root, 'CRU_temp', 'extract_growing_season', 'extract_growing_season_10degree')
-        T.mk_dir(outdir, force=True)
+        LAI_dic_fdir = join(data_root, rf'terraclimate\PDSI\per_pix', )
+        growing_season_fdir = join(data_root, rf'terraclimate\tmax_min', 'extract_SOS_EOS_index_10degree',)
+        outdir = join(data_root, 'terraclimate\PDSI', 'extract_growing_season_10degree', )
 
+        T.mk_dir(outdir, force=True)
         start_dic = {}
         end_dic = {}
         len_dic = {}
@@ -1175,7 +1369,6 @@ class temperature:
                 LAI_val = np.array(LAI_dic[pix], dtype=float)
 
                 if pix not in gs_dic:
-
                     continue
 
                 start = gs_dic[pix]["start"]
@@ -1184,26 +1377,32 @@ class temperature:
                 end_dic[pix] = end
 
                 if start is None or end is None:
-
                     continue
 
                 n_years = len(LAI_val) // 12
                 gs_vals = []
+                if n_years <38:
+                    print(n_years)
+                    continue
+
 
                 for y in range(n_years):
-                    year_vals = LAI_val[y * 12:(y + 1) * 12]  # 当年12个月
-
-                    if start <= end:
-                        # 生长季在同一年内
-                        gs_vals.append(year_vals[start:end + 1])
+                    year_vals = LAI_val[y * 12:(y + 1) * 12]
+                    if isinstance(year_vals, np.ndarray) and np.all(np.isnan(year_vals)):
+                        continue
                     else:
-                        # 跨年 → 当年[start:12] + 下一年[:end+1]
-                        if y < n_years - 1:  # 不是最后一年
-                            next_year_vals = LAI_val[(y + 1) * 12:(y + 2) * 12]
-                            gs_vals.append(np.concatenate([year_vals[start:], next_year_vals[:end + 1]]))
+
+                        if start <= end:
+                            # 生长季在同一年内
+                            gs_vals.append(year_vals[start:end + 1])
                         else:
-                            # 最后一年无法取下一年 → 丢弃 or 标记 None
-                            gs_vals.append(np.nan)
+                            # 跨年 → 当年[start:12] + 下一年[:end+1]
+                            if y < n_years - 1:  # 不是最后一年
+                                next_year_vals = LAI_val[(y + 1) * 12:(y + 2) * 12]
+                                gs_vals.append(np.concatenate([year_vals[start:], next_year_vals[:end + 1]]))
+                            else:
+                                # 最后一年无法取下一年 → 丢弃 or 标记 None
+                                gs_vals.append(np.nan)
 
                 result_dic[pix] = np.array(gs_vals, dtype=object)
                 len_dic[pix] = len(gs_vals)
@@ -1212,38 +1411,42 @@ class temperature:
             outf = join(outdir, f)
             np.save(outf, result_dic)
 
+
+
         # 可选：保存 start/end 空间分布检查
-        # array_start = DIC_and_TIF(pixelsize=0.5).pix_dic_to_spatial_arr(start_dic)
-        # array_end = DIC_and_TIF(pixelsize=0.5).pix_dic_to_spatial_arr(end_dic)
-        # array_len = DIC_and_TIF(pixelsize=0.5).pix_dic_to_spatial_arr(len_dic)
-        #
-        # DIC_and_TIF(pixelsize=0.5).arr_to_tif(array_start, outdir + 'start.tif')
-        #
-        # DIC_and_TIF(pixelsize=0.5).arr_to_tif(array_len, outdir + 'len.tif')
-        #
-        # DIC_and_TIF(pixelsize=0.5).arr_to_tif(array_end, outdir + 'end.tif')
-        #
-        # plt.figure(figsize=(12, 5))
-        # plt.subplot(1, 2, 1)
-        #
-        # plt.imshow(array_start, cmap="jet")
-        # plt.colorbar(label="Month Index (0=Jan)")
-        #
-        # plt.subplot(1, 2, 2)
-        #
-        # plt.imshow(array_end, cmap="jet")
-        # plt.colorbar(label="Month Index (11=Dec)")
-        # plt.show()
+        array_start = DIC_and_TIF(pixelsize=0.1).pix_dic_to_spatial_arr(start_dic)
+        array_end = DIC_and_TIF(pixelsize=0.1).pix_dic_to_spatial_arr(end_dic)
+        array_len = DIC_and_TIF(pixelsize=0.1).pix_dic_to_spatial_arr(len_dic)
+        outtifdir = join(data_root, f'terraclimate\PDSI'  ,'tifs')
+        T.mk_dir(outtifdir, force=True)
+
+        DIC_and_TIF(pixelsize=0.1).arr_to_tif(array_start, join(outtifdir, 'start.tif'))
+
+        DIC_and_TIF(pixelsize=0.1).arr_to_tif(array_len, join(outtifdir, 'len.tif'))
+
+        DIC_and_TIF(pixelsize=0.1).arr_to_tif(array_end, join(outtifdir, 'end.tif'))
+
+        plt.figure(figsize=(12, 5))
+        plt.subplot(1, 2, 1)
+
+        plt.imshow(array_start, cmap="jet")
+        plt.colorbar(label="Month Index (0=Jan)")
+
+        plt.subplot(1, 2, 2)
+
+        plt.imshow(array_end, cmap="jet")
+        plt.colorbar(label="Month Index (11=Dec)")
+        plt.show()
 
     def annual_growth_season_temp(self):
-        """
-        计算每个像素逐年的生长季温度平均值
-        - 北半球: 1982-2020 39 year
-        - 南半球: 若为跨年生长季 → 38年 + 1个 nan (补齐为39年)
-                  若为全年生长季 → 保留39年
-        """
-        fdir = join(data_root, 'CRU_temp', 'extract_growing_season', 'extract_growing_season_10degree')
-        outdir = join(data_root, 'CRU_temp', 'annual_growth_season_temp_10degree')
+            # """
+            # 计算每个像素逐年的生长季温度平均值
+            # - 北半球: 1982-2020 39 year
+            # - 南半球: 若为跨年生长季 → 38年 + 1个 nan (补齐为39年)
+            #           若为全年生长季 → 保留39年
+            # """""
+        fdir = join(self.datadir, 'PDSI','extract_growing_season_10degree')
+        outdir = join(self.datadir,'PDSI', 'annual_growth_season_10degree')
         T.mk_dir(outdir, force=True)
 
         len_dic = {}
@@ -1289,7 +1492,7 @@ class temperature:
                         continue
 
                     # 年平均 (对每一行求平均)
-                    annual_mean = np.nanmean(stacked, axis=1)
+                    annual_mean = np.nanmin(stacked, axis=1)
                     # print(len(annual_mean))
                     # plt.plot(annual_mean)
                     # plt.show()
@@ -1302,10 +1505,32 @@ class temperature:
             np.save(outf, result_dic)
 
         # 可视化每个像素的有效年数
-        array_len = DIC_and_TIF(pixelsize=0.5).pix_dic_to_spatial_arr(len_dic)
+        array_len = DIC_and_TIF(pixelsize=0.1).pix_dic_to_spatial_arr(len_dic)
         plt.imshow(array_len, cmap="jet")
         plt.colorbar(label="Available Years")
         plt.title("Valid Year Counts per Pixel")
+        plt.show()
+
+
+    def check_data(self):
+        fdir = join(self.datadir,'PDSI','extract_growing_season_10degree')
+        spatial_dict = T.load_npy_dir(fdir)
+        spatial_dict_num = {}
+        for pix in spatial_dict:
+            vals = spatial_dict[pix]
+            vals=np.array(vals, dtype=object)
+            print(vals)
+
+            if np.all(np.isnan(vals)):
+                continue
+            if np.isnan(vals).any():
+                continue
+            num = len(vals)
+            # plt.plot(vals)
+            # plt.show()
+            spatial_dict_num[pix] = num
+        arr = DIC_and_TIF().pix_dic_to_spatial_arr(spatial_dict_num)
+        plt.imshow(arr)
         plt.show()
 
 
@@ -1680,11 +1905,11 @@ class extract_growing_season_not_used:  ## not use in this project
 
 
 def main():
-    Download_TerraClimate().run()
+    # Download_TerraClimate().run()
 
     # GIMMS_NDVI().run()
     # SPI().run()
-    # temperature().run()
+    temperature().run()
     # Calculating_SPI().run()
 
     pass
