@@ -1660,7 +1660,7 @@ class pick_Drought:
         T.mk_dir(self.outdir, force=True)
         pass
     def run(self):
-        self.pick_multiyear_drought_events_year()
+        # self.pick_multiyear_drought_events_year()
         self.generate_expected_GPP()
         pass
 
@@ -1702,7 +1702,7 @@ class pick_Drought:
             干旱结束后，若 recovery_gap 年内再次干旱，则视为未恢复（排除该事件）
         """
 
-        result_records = []
+        result_records = {}
 
         for pix in tqdm(PDSI_dict, desc="Detecting multiyear droughts"):
 
@@ -1766,7 +1766,7 @@ class pick_Drought:
                     post_mean_spi = np.nan
 
                 record = {
-                    "pix": pix,
+
                     "drought_years": drought_years,
                     "PDSI_min": float(min_val),
                     "PDSI_min_year": int(min_year),
@@ -1774,18 +1774,18 @@ class pick_Drought:
                     "Drought_severity": float(severity),
                     "Post4yr_mean_PDSI": float(post_mean_spi),
                 }
-                result_records.append(record)
-            pprint(result_records)
+                result_records[pix] = record
+            # pprint(result_records)
 
 
         return result_records
 
 
     def generate_expected_GPP(self):  #### here generate expected GPP
-        GPP_dir=join(self.datadir,rf'GPP_CEDAR\LT_CFE-Hybrid_NT\annual_growth_season_10degree_detrend')
-        pick_drought_fdir=join(self.datadir,rf'terraclimate\PDSI\pick_drought\multiyear_drought')
+        GPP_dir=join(self.datadir,rf'GPP_CEDAR\LT_Baseline_NT\annual_growth_season_10degree_detrend')
+        pick_drought_f=join(self.datadir,rf'terraclimate\PDSI\pick_drought\multiyear_drought\multiyear_droughts.npy')
         dic_GPP=T.load_npy_dir(GPP_dir)
-        dic_drought=T.load_npy(pick_drought_fdir)
+        dic_drought=T.load_npy(pick_drought_f)
         out_dic= {}
         for pix, GPP in tqdm(dic_GPP.items(), desc='Generating expected GPP'):
             if pix not in dic_drought:
@@ -1813,7 +1813,7 @@ class pick_Drought:
             out_dic[pix] = GPP_expected
 
             # === Step 3: 保存结果 ===
-        outdir=join(self.datadir,rf'GPP_CEDAR\expected_GPP')
+        outdir=join(self.datadir,rf'GPP_CEDAR\LT_Baseline_NT\\expected_GPP')
         T.mk_dir(outdir,force=True)
         outf = join(outdir, 'expected_GPP.npy')
         np.save(outf, out_dic)
