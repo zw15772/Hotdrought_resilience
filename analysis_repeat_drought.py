@@ -306,26 +306,30 @@ class Pick_multi_year_drought_events_year:
 
         pass
     def run(self):
-        self.pick_multiyear_drought_events_year()
-        self.add_temp_during_drought()
+        # self.pick_multiyear_drought_events_year()
+        # self.add_temp_during_drought()
+        # self.add_VPD_during_drought()
+        # self.add_SM_during_drought()
+        # self.add_GPP_legacy()
         # self.add_NDVI_min_mean_during_drought()
         self.add_total_NDVI_during_and_post_drought()
+        # self.add_post_NDVI_to_df()
         #
         # #
-        self.add_hot_drought()
+        # self.add_hot_drought()
         # self.generation_drought_character_df()
 
 
     def pick_multiyear_drought_events_year(self):
         # 载入数据
-        spi_12_dir = join(data_root, 'SPI/per_pix/spi12')
-        SPI_dict = T.load_npy_dir(spi_12_dir)
+        PDSI_dir = join(data_root, 'terraclimate', 'PDSI', 'annual_growth_season_10degree')
+        PDSI_dict = T.load_npy_dir(PDSI_dir)
         years = np.arange(1982, 2021)
 
         df_droughts = self.detect_multiyear_droughts(
-            SPI_dict=SPI_dict,
+            PDSI_dict=PDSI_dict,
             years=years,
-            drought_threshold=-2,
+            drought_threshold=-3,
             min_duration=2,
 
         )
@@ -336,7 +340,7 @@ class Pick_multi_year_drought_events_year:
         T.save_df(df_droughts, outpath)
         T.df_to_excel(df_droughts, outpath)
 
-    def detect_multiyear_droughts(self, SPI_dict, years, drought_threshold, min_duration,):
+    def detect_multiyear_droughts(self, PDSI_dict, years, drought_threshold, min_duration,):
         """
         识别每个像元的 multi-year drought 事件并提取属性
 
@@ -356,21 +360,15 @@ class Pick_multi_year_drought_events_year:
 
         result_records = []
 
+        for pix in tqdm(PDSI_dict, desc="Detecting multiyear droughts"):
 
-
-        for pix, spi_2d in tqdm(SPI_dict.items(), desc="Detecting multiyear droughts"):
-            vals=SPI_dict[pix]
-            vals[vals<-999] = np.nan
+            vals = PDSI_dict[pix]
+            vals[vals < -999] = np.nan
             if np.isnan(np.nanmean(vals)):
                 continue
-            vals_reshape = np.reshape(vals,(-1,12))
-            spi_2d = np.array(vals_reshape, dtype=float)  # shape: (n_years, 12)
-            if spi_2d.ndim != 2 or spi_2d.shape[0] != len(years):
-                continue
-
 
             # === Step 1: 年度 SPI ===
-            spi_annual = np.nanmin(spi_2d, axis=1)
+            spi_annual = vals
 
             # === Step 2: 干旱标记 ===
             drought_mask = spi_annual < drought_threshold
@@ -399,46 +397,59 @@ class Pick_multi_year_drought_events_year:
 
             # === Step 5: 记录事件 ===
             for (s, e) in multiyear_events:
-                sub_spi = spi_2d[s:e + 1, :]
+                sub_spi = spi_annual[s:e + 1]
                 min_idx = np.nanargmin(sub_spi)
                 min_val = np.nanmin(sub_spi)
-                year_idx, month_idx = np.unravel_index(min_idx, sub_spi.shape)
-                min_year = years[s + year_idx]
-                min_month = month_idx + 1
+
+                min_year = years[s + min_idx]
 
                 drought_years = [int(y) for y in years[s:e + 1]]
                 # === Step 6: 干旱严重度 ===
 
                 sub_spi = spi_annual[s:e + 1]
-                print(sub_spi)
+                # print(sub_spi)
                 if len(sub_spi) > 0:
                     severity = np.nansum(np.abs(sub_spi))
                 else:
                     severity = np.nan
 
-                # === Step 6.5: 干旱后4年的 SPI 平均值 ===
+                # === 干旱前4年 ===
+
+                pre_idx = [s - j for j in range(1, 5) if (s - j) >= 0]
+                if len(pre_idx) > 0:
+                    pre_mean_spi = np.nanmean(spi_annual[pre_idx])
+                    pre_min_spi = np.nanmin(spi_annual[pre_idx])
+                else:
+                    pre_mean_spi = np.nan
+                    pre_min_spi = np.nan
+
+                # === 干旱后4年 ===
                 post_idx = [e + j for j in range(1, 5) if (e + j) < len(spi_annual)]
                 if len(post_idx) > 0:
                     post_mean_spi = np.nanmean(spi_annual[post_idx])
+                    post_min_spi = np.nanmin(spi_annual[post_idx])
                 else:
                     post_mean_spi = np.nan
+                    post_min_spi = np.nan
 
                 record = {
                     "pix": pix,
                     "drought_years": drought_years,
-                    "SPI_min": float(min_val),
-                    "SPI_min_year": int(min_year),
-                    "SPI_min_month": int(min_month),
+                    "PDSI_min": float(min_val),
+                    "PDSI_min_year": int(min_year),
                     "duration": len(drought_years),
                     "Drought_severity": float(severity),
-                    "Post4yr_mean_SPI": float(post_mean_spi),
+                    "Pre4yr_mean_PDSI": float(pre_mean_spi),
+                    "Pre4yr_min_PDSI": float(pre_min_spi),
+                    "Post4yr_mean_PDSI": float(post_mean_spi),
+                    "Post4yr_min_PDSI": float(post_min_spi),
                 }
                 result_records.append(record)
 
 
             # === 输出 ===
         df_out = pd.DataFrame(result_records)
-        T.save_df(df_out, self.outdir + 'clean_events.df')
+        # T.save_df(df_out, self.outdir + 'clean_events.df')
         return df_out
 
 
@@ -446,7 +457,7 @@ class Pick_multi_year_drought_events_year:
     def add_temp_during_drought(self):
         dff=join(self.outdir,'Dataframe/multiyear_droughts.df')
 
-        temp_dic_path=join(data_root,r'CRU_temp\annual_growth_season_temp_detrend_zscore_10degree')
+        temp_dic_path=join(data_root,r'terraclimate\tmax\annual_growth_season_10degree_detrend')
 
 
         # === 1. 读取数据 ===
@@ -519,6 +530,161 @@ class Pick_multi_year_drought_events_year:
         outf=dff
         T.save_df(df,outf)
         T.df_to_excel(df,outf,random=True)
+
+    def add_VPD_during_drought(self):
+        dff = join(self.outdir, 'Dataframe/multiyear_droughts.df')
+
+        temp_dic_path = join(data_root, r'terraclimate\vpd\annual_growth_season_10degree_detrend')
+
+        # === 1. 读取数据 ===
+        df = T.load_df(dff)
+        temp_dic = T.load_npy_dir(temp_dic_path)
+
+        # === 2. 存放结果 ===
+        max_temp_list = []
+        max_temp_year_list = []
+
+        mean_temp_list = []
+
+        # === 2. 初始化结果列表 ===
+
+        # === 3. 假设数据从1982年开始 ===
+        base_year = 1982
+
+        for i, row in tqdm(df.iterrows(), total=len(df)):
+            pix = row['pix']
+            drought_years = row['drought_years']
+
+            # 转换字符串 '[2002, 2003, 2004]' 为列表
+            if isinstance(drought_years, str):
+                try:
+                    drought_years = eval(drought_years)
+                except:
+                    drought_years = []
+
+            # 没有温度数据
+            if pix not in temp_dic:
+                max_temp_list.append(np.nan)
+                max_temp_year_list.append(np.nan)
+                mean_temp_list.append(np.nan)
+                continue
+
+            temp_arr = np.array(temp_dic[pix], dtype=float)
+            all_years = np.arange(base_year, base_year + len(temp_arr))
+
+            # 筛选干旱年份对应的索引
+            drought_indices = [np.where(all_years == y)[0][0] for y in drought_years if y in all_years]
+
+            if len(drought_indices) == 0:
+                max_temp_list.append(np.nan)
+                max_temp_year_list.append(np.nan)
+                mean_temp_list.append(np.nan)
+                continue
+
+            drought_temps = temp_arr[drought_indices]
+
+            # === 计算指标 ===
+            max_temp = np.nanmax(drought_temps)
+            max_idx = np.nanargmax(drought_temps)
+            max_temp_year = drought_years[max_idx]
+            mean_temp = np.nanmean(drought_temps)
+
+            # === 添加结果 ===
+            max_temp_list.append(max_temp)
+            max_temp_year_list.append(max_temp_year)
+            mean_temp_list.append(mean_temp)
+
+        # === 4. 添加到 DataFrame ===
+        df['max_vpd'] = max_temp_list
+        df['max_vpd_year'] = max_temp_year_list
+
+        df['mean_vpd'] = mean_temp_list
+
+        outf = dff
+        T.save_df(df, outf)
+        T.df_to_excel(df, outf, random=True)
+
+    def add_SM_during_drought(self):
+        dff=join(self.outdir,'Dataframe/multiyear_droughts.df')
+
+        temp_dic_path=join(data_root,r'GLEAM\SMrz\annual_growth_season_10degree')
+
+
+        # === 1. 读取数据 ===
+        df = T.load_df(dff)
+        temp_dic = T.load_npy_dir(temp_dic_path)
+
+        # === 2. 存放结果 ===
+        min_SM_list=[]
+        min_SM_year_list=[]
+
+        mean_SM_list=[]
+
+
+        # === 2. 初始化结果列表 ===
+
+
+        # === 3. 假设数据从1982年开始 ===
+        base_year = 1982
+
+        for i, row in tqdm(df.iterrows(), total=len(df)):
+            pix = row['pix']
+            drought_years = row['drought_years']
+
+            # 转换字符串 '[2002, 2003, 2004]' 为列表
+            if isinstance(drought_years, str):
+                try:
+                    drought_years = eval(drought_years)
+                except:
+                    drought_years = []
+
+            # 没有温度数据
+            if pix not in temp_dic:
+                min_SM_list.append(np.nan)
+                min_SM_year_list.append(np.nan)
+                mean_SM_list.append(np.nan)
+                continue
+
+            temp_arr = np.array(temp_dic[pix], dtype=float)
+            all_years = np.arange(base_year, base_year + len(temp_arr))
+
+            # 筛选干旱年份对应的索引
+            drought_indices = [np.where(all_years == y)[0][0] for y in drought_years if y in all_years]
+
+            if len(drought_indices) == 0:
+                min_SM_list.append(np.nan)
+                min_SM_year_list.append(np.nan)
+                mean_SM_list.append(np.nan)
+                continue
+
+            drought_temps = temp_arr[drought_indices]
+
+            # === 计算指标 ===
+            min_SM= np.nanmin(drought_temps)
+            min_idx = np.nanargmin(drought_temps)
+            min_SM_year = drought_years[min_idx]
+            mean_SM = np.nanmean(drought_temps)
+
+            # === 添加结果 ===
+            min_SM_list.append(min_SM)
+            min_SM_year_list.append(min_SM_year)
+            mean_SM_list.append(mean_SM)
+
+
+        # === 4. 添加到 DataFrame ===
+        df['min_SMrz'] = min_SM_list
+        df['min_SMrz_year'] = min_SM_year_list
+        df['mean_SMrz'] = mean_SM_list
+
+
+
+        outf=dff
+        T.save_df(df,outf)
+        T.df_to_excel(df,outf,random=True)
+
+    def add_GPP_during_drought(self):
+        pass
+
 
 
     def add_NDVI_min_mean_during_drought(self):
@@ -600,10 +766,10 @@ class Pick_multi_year_drought_events_year:
 
     pass
 
-    def add_total_NDVI_during_and_post_drought(self):
+    def add_rs_rt(self):
 
         dff = join(self.outdir, 'Dataframe/multiyear_droughts.df')
-        temp_dic_path = join(data_root, r'NDVI4g\annual_growth_season_NDVI_detrend')
+        temp_dic_path = join(data_root, r'GPP_CEDAR\LT_CFE-Hybrid_NT\GPP_difference')
 
         # === 1. 读取数据 ===
         df = T.load_df(dff)
@@ -668,6 +834,7 @@ class Pick_multi_year_drought_events_year:
             ndvi_drought = ndvi_arr[drought_indices]
             total_drought = np.nanmean(ndvi_drought)
             drought_len = len(drought_indices)
+            drought_start_year = min(drought_years)
             drought_end_year = max(drought_years)
 
             # --- 提取干旱后 1–4 年 ---
@@ -680,11 +847,30 @@ class Pick_multi_year_drought_events_year:
                 else:
                     post_vals.append(np.nan)
 
+                # --- 提取干旱前 4 年 ---
+                pre_vals = []
+                year_target = drought_end_year - 4
+                if year_target in all_years:
+                    idx = np.where(all_years == year_target)[0][0]
+                    pre_vals.append(ndvi_arr[idx])
+                else:
+                    pre_vals.append(np.nan)
+
             # === 累积 ===
             post1 = post_vals[0]
             post2 = np.nanmean(post_vals[:2])  # 1 + 2
             post3 = np.nanmean(post_vals[:3])  # 1 + 2 + 3
             post4 = np.nanmean(post_vals[:4])  # 1 + 2 + 3 + 4
+
+            # --- 干旱前 4 年 ---
+            pre_vals = []
+
+            year_target = drought_start_year - 4
+            if year_target in all_years:
+                idx = np.where(all_years == year_target)[0][0]
+                pre_vals.append(ndvi_arr[idx])
+            else:
+                pre_vals.append(np.nan)
 
 
             def safe_ratio(a, b):
@@ -692,11 +878,12 @@ class Pick_multi_year_drought_events_year:
                     return np.nan
                 return a / b
 
-            post1_ratio = safe_ratio(post1, NDVI_average)
-            post2_ratio = safe_ratio(post2, NDVI_average)
-            post3_ratio = safe_ratio(post3, NDVI_average)
-            post4_ratio = safe_ratio(post4, NDVI_average)
-            rt_ratio=safe_ratio(total_drought, NDVI_average)
+            post1_ratio = safe_ratio(post1, pre_vals[0])
+            post2_ratio = safe_ratio(post2, pre_vals[0])
+            post3_ratio = safe_ratio(post3, pre_vals[0])
+            post4_ratio = safe_ratio(post4, pre_vals[0])
+
+            rt_ratio = safe_ratio(total_drought, pre_vals[0])
 
 
             # === 存储结果 ===
@@ -708,11 +895,133 @@ class Pick_multi_year_drought_events_year:
             drought_len_list.append(drought_len)
 
         # === 3. 写入 DataFrame ===
-        df["NDVI_rt"] = rt_list
-        df["NDVI_post1_rs"] = post1_list
-        df["NDVI_post2_rs"] = post2_list
-        df["NDVI_post3_rs"] = post3_list
-        df["NDVI_post4_rs"] = post4_list
+        df["GPP_rt"] = rt_list
+        df["GPP_post1_rs"] = post1_list
+        df["GPP_post2_rs"] = post2_list
+        df["GPP_post3_rs"] = post3_list
+        df["GPP_post4_rs"] = post4_list
+
+
+        # === 4. 保存 ===
+        outf=join(self.outdir,'Dataframe/multiyear_droughts.df')
+        T.save_df(df, outf)
+        T.df_to_excel(df, outf, random=True)
+
+
+    def add_GPP_legacy(self):
+
+        dff = join(self.outdir, 'Dataframe/multiyear_droughts.df')
+        temp_dic_path = join(data_root, r'GPP_CEDAR\LT_CFE-Hybrid_NT\GPP_difference')
+
+        # === 1. 读取数据 ===
+        df = T.load_df(dff)
+        ########## show spatial pix
+        # pix_list = df['pix'].tolist()
+        # unique_pix_list = list(set(pix_list))
+        # spatial_dic = {}
+        #
+        # for pix in unique_pix_list:
+        #     spatial_dic[pix] = 1
+        # arr = DIC_and_TIF(pixelsize=0.1).pix_dic_to_spatial_arr(spatial_dic)
+        # plt.imshow(arr, vmin=-0.5, vmax=0.5, cmap='jet', interpolation='nearest')
+        # plt.colorbar()
+        # plt.show()
+
+        ndvi_dic = T.load_npy_dir(temp_dic_path)
+
+        # === 2. 初始化结果 ===
+
+        rt_list = []
+        post1_list, post2_list, post3_list, post4_list = [], [], [], []
+        drought_len_list = []
+
+        base_year = 1982
+
+        for i, row in tqdm(df.iterrows(), total=len(df)):
+            pix = row['pix']
+            drought_years = row['drought_years']
+            # print(pix, drought_years)
+
+            # --- 转换 drought_years ---
+            if isinstance(drought_years, str):
+                try:
+                    drought_years = eval(drought_years)
+                except:
+                    drought_years = []
+            elif not isinstance(drought_years, list):
+                drought_years = []
+
+            if len(drought_years) == 0:
+                rt_list.append(np.nan)
+                post1_list.append(np.nan)
+                post2_list.append(np.nan)
+                post3_list.append(np.nan)
+                post4_list.append(np.nan)
+                drought_len_list.append(np.nan)
+                continue
+
+            # --- NDVI 缺失 ---
+            if pix not in ndvi_dic:
+                rt_list.append(np.nan)
+                post1_list.append(np.nan)
+                post2_list.append(np.nan)
+                post3_list.append(np.nan)
+                post4_list.append(np.nan)
+                drought_len_list.append(np.nan)
+                continue
+
+            ndvi_arr = np.array(ndvi_dic[pix], dtype=float)
+            NDVI_average = np.nanmean(ndvi_arr)
+            all_years = np.arange(base_year, base_year + len(ndvi_arr))
+
+            # --- 提取干旱期 ---
+            drought_indices = [np.where(all_years == y)[0][0] for y in drought_years if y in all_years]
+            if len(drought_indices) == 0:
+                rt_list.append(np.nan)
+                post1_list.append(np.nan)
+                post2_list.append(np.nan)
+                post3_list.append(np.nan)
+                post4_list.append(np.nan)
+                drought_len_list.append(np.nan)
+                continue
+
+            ndvi_drought = ndvi_arr[drought_indices]
+            total_drought = np.nanmean(ndvi_drought)
+            drought_len = len(drought_indices)
+            drought_end_year = max(drought_years)
+
+            # --- 提取干旱后 1–4 年 ---
+            post_vals = []
+            for offset in [1, 2, 3, 4]:
+                year_target = drought_end_year + offset
+                if year_target in all_years:
+                    idx = np.where(all_years == year_target)[0][0]
+                    post_vals.append(ndvi_arr[idx])
+                else:
+                    post_vals.append(np.nan)
+
+
+            post1 = post_vals[0]
+            post2 = post_vals[1]
+            post3 = post_vals[2]
+            post4 = post_vals[3]
+
+
+
+            # === 存储结果 ===
+            rt_list.append((total_drought))
+            post1_list.append(post1)
+            post2_list.append(post2 )
+            post3_list.append(post3)
+            post4_list.append(post4)
+            drought_len_list.append(drought_len)
+
+        # === 3. 写入 DataFrame ===
+        df["GPP_during_drought"] = rt_list
+        df["GPP_post1_legacy"] = post1_list
+        df["GPP_post2_legacy"] = post2_list
+        df["GPP_post3_legacy"] = post3_list
+        df["GPP_post4_legacy"] = post4_list
 
 
         # === 4. 保存 ===
@@ -1388,7 +1697,7 @@ class PLOT_multi_year_drought_vegetation():
         # self.plot_NDVI_post_drought_resilience()
         # self.plot_NDVI_hot_normal_during_drought_NDVI()
         # self.plot_hot_minus_normal_during_drought_NDVI()
-        self.heatmap_post_drought()
+        # self.heatmap_post_drought()
 
         pass
 
@@ -1649,9 +1958,9 @@ class PLOT_multi_year_drought_vegetation():
     def plot_NDVI_post_drought_resilience(self):
         df=T.load_df(self.dff)
         print(len(df))
-        df=self.df_clean(df)
+        # df=self.df_clean(df)
         print(len(df))
-        df=df[df['Post4yr_mean_SPI']>-2]
+        # df=df[df['Post4yr_mean_SPI']>-2]
         # df=df[df['drought_type']=='Hot']
         # df=df[df['drought_type']=='Normal']
         spatial_dic_post1={}
@@ -1665,11 +1974,11 @@ class PLOT_multi_year_drought_vegetation():
         df_group=T.df_groupby(df,'pix')
         for pix in df_group:
             df_pix=df_group[pix]
-            val_list_during_drought=df_pix['NDVI_rt'].tolist()
-            val_list_post1=df_pix['NDVI_post1_rs'].tolist()
-            val_list_post2=df_pix['NDVI_post2_rs'].tolist()
-            val_list_post3=df_pix['NDVI_post3_rs'].tolist()
-            val_list_post4=df_pix['NDVI_post4_rs'].tolist()
+            val_list_during_drought=df_pix['GPP_during_drought'].tolist()
+            val_list_post1=df_pix['GPP_post1_legacy'].tolist()
+            val_list_post2=df_pix['GPP_post2_legacy'].tolist()
+            val_list_post3=df_pix['GPP_post3_legacy'].tolist()
+            val_list_post4=df_pix['GPP_post4_legacy'].tolist()
 
             val_list_during_drought_mean=np.nanmean(val_list_during_drought)
 
@@ -1687,33 +1996,33 @@ class PLOT_multi_year_drought_vegetation():
             spatial_dic_post4[pix]=val_post4_mean
             spatial_dic_during_drought[pix]=val_list_during_drought_mean
 
-        array_post1 = DIC_and_TIF().pix_dic_to_spatial_arr(spatial_dic_post1)
-        array_post2 = DIC_and_TIF().pix_dic_to_spatial_arr(spatial_dic_post2)
-        array_post3 = DIC_and_TIF().pix_dic_to_spatial_arr(spatial_dic_post3)
-        array_post4 = DIC_and_TIF().pix_dic_to_spatial_arr(spatial_dic_post4)
-        array_during_drought = DIC_and_TIF().pix_dic_to_spatial_arr(spatial_dic_during_drought)
+        array_post1 = DIC_and_TIF(pixelsize=0.1).pix_dic_to_spatial_arr(spatial_dic_post1)
+        array_post2 = DIC_and_TIF(pixelsize=0.1).pix_dic_to_spatial_arr(spatial_dic_post2)
+        array_post3 = DIC_and_TIF(pixelsize=0.1).pix_dic_to_spatial_arr(spatial_dic_post3)
+        array_post4 = DIC_and_TIF(pixelsize=0.1).pix_dic_to_spatial_arr(spatial_dic_post4)
+        array_during_drought = DIC_and_TIF(pixelsize=0.1).pix_dic_to_spatial_arr(spatial_dic_during_drought)
 
         outdir = join(self.outdir, 'tiff','ALL')
         T.mk_dir(outdir)
 
-        outf = join(outdir, 'NDVI_post1_rs.tif')
-        DIC_and_TIF().arr_to_tif(array_post1, outf)
+        outf = join(outdir, 'GPP_post1.tif')
+        DIC_and_TIF(pixelsize=0.1).arr_to_tif(array_post1, outf)
         print(outf)
 
-        outf = join(outdir, 'NDVI_post2_rs.tif')
-        DIC_and_TIF().arr_to_tif(array_post2, outf)
+        outf = join(outdir, 'GPP_post2.tif')
+        DIC_and_TIF(pixelsize=0.1).arr_to_tif(array_post2, outf)
         print(outf)
 
-        outf = join(outdir, 'NDVI_post3_rs.tif')
-        DIC_and_TIF().arr_to_tif(array_post3, outf)
+        outf = join(outdir, 'GPP_post3.tif')
+        DIC_and_TIF(pixelsize=0.1).arr_to_tif(array_post3, outf)
         print(outf)
 
-        outf = join(outdir, 'NDVI_post4_rs.tif')
-        DIC_and_TIF().arr_to_tif(array_post4, outf)
+        outf = join(outdir, 'GPP_post4.tif')
+        DIC_and_TIF(pixelsize=0.1).arr_to_tif(array_post4, outf)
         print(outf)
 
-        outf = join(outdir, 'NDVI_rt.tif')
-        DIC_and_TIF().arr_to_tif(array_during_drought, outf)
+        outf = join(outdir, 'GPP_during_drought.tif')
+        DIC_and_TIF(pixelsize=0.1).arr_to_tif(array_during_drought, outf)
         print(outf)
 
         pass
@@ -1989,8 +2298,8 @@ class PLOT_multi_year_drought_vegetation():
 
 
 def main():
-    Download_TerraClimate().run()
-    # Pick_multi_year_drought_events_year().run()
+    # Download_TerraClimate().run()
+    Pick_multi_year_drought_events_year().run()
     # Dataframe().run()
     # PLOT_multi_year_drought_vegetation().run()
     # PLOT_multi_year_drought_characteristic().run()
